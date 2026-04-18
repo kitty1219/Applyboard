@@ -214,9 +214,7 @@ function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('看板视图')
   const [searchTerm, setSearchTerm] = useState('')
   const [applications, setApplications] = useState<Application[]>(mockApplications)
-  const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(
-    mockApplications[0]?.id ?? null,
-  )
+  const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [isEmailUploadModalOpen, setIsEmailUploadModalOpen] = useState(false)
@@ -229,9 +227,9 @@ function App() {
     stage: ApplicationStage
     stageMeta: StageMeta
   }>({
-    applicationId: mockApplications[0]?.id ?? null,
-    stage: mockApplications[0]?.currentStage ?? '待投递',
-    stageMeta: mockApplications[0]?.stageMeta ?? {},
+    applicationId: null,
+    stage: '待投递',
+    stageMeta: {},
   })
 
   const filteredApplications = useMemo(() => {
