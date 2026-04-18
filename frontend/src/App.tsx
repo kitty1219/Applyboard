@@ -477,7 +477,7 @@ function App() {
               </div>
             }
           >
-            <div className="flex h-full min-h-0 flex-col gap-2.5 overflow-y-auto pr-1">
+            <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-y-contain pr-1 [-webkit-overflow-scrolling:touch]">
               {topPriorityItem ? (
                 <div className="relative shrink-0 overflow-hidden rounded-lg border border-rose-100 bg-gradient-to-br from-rose-50/80 via-white to-white px-3.5 py-3">
                   <span className="absolute left-0 top-0 h-full w-0.5 bg-gradient-to-b from-rose-500 to-rose-300" />
@@ -913,7 +913,7 @@ function PanelCard({
     <section
       className={
         stackHeaderOnNarrow
-          ? 'flex min-h-[280px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white card-soft h-auto max-h-[min(520px,85vh)] sm:h-[300px] sm:max-h-none'
+          ? 'flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white card-soft h-[min(520px,85vh)] sm:h-[300px]'
           : 'flex h-[300px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white card-soft'
       }
     >
@@ -947,7 +947,15 @@ function PanelCard({
           extra
         )}
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-3">{children}</div>
+      <div
+        className={
+          stackHeaderOnNarrow
+            ? 'flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-3'
+            : 'min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-3'
+        }
+      >
+        {children}
+      </div>
     </section>
   )
 }
