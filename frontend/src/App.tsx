@@ -385,7 +385,7 @@ function App() {
       <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col px-5 py-6 lg:px-8">
         <header className="relative overflow-hidden rounded-xl border border-slate-200 bg-white px-6 py-5 card-soft">
           <div className="pointer-events-none absolute -right-32 -top-32 h-64 w-64 rounded-full bg-gradient-to-br from-indigo-200/40 via-violet-200/30 to-transparent blur-2xl" />
-          <div className="relative flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-4">
               <div className="brand-badge hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white sm:inline-flex">
                 <IconBriefcase />
@@ -407,51 +407,54 @@ function App() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-2 md:flex-row md:items-center">
-              <label className="group flex h-9 w-full min-w-[260px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-500 transition focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-400/15 hover:border-slate-300 md:w-auto">
+            <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-center md:gap-3">
+              <label className="group flex h-9 w-full min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-500 transition focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-400/15 hover:border-slate-300 md:min-w-[200px] md:flex-1">
                 <IconSearch className="shrink-0 text-slate-400 group-focus-within:text-indigo-500" />
                 <input
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                   placeholder="搜索公司、岗位或备注"
-                  className="w-full bg-transparent text-slate-800 outline-none placeholder:text-slate-400"
+                  className="min-w-0 flex-1 bg-transparent text-slate-800 outline-none placeholder:text-slate-400"
                 />
               </label>
-              <button
-                type="button"
-                onClick={() => setIsLoginModalOpen(true)}
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                <IconUser className="text-slate-500" />
-                登录
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsImportModalOpen(true)}
-                className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                批量导入
-              </button>
-              <button
-                type="button"
-                onClick={openCreateDrawer}
-                className="btn-primary inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium"
-              >
-                <IconPlus />
-                新增申请
-              </button>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsLoginModalOpen(true)}
+                  className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  <IconUser className="shrink-0 text-slate-500" />
+                  登录
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsImportModalOpen(true)}
+                  className="inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  批量导入
+                </button>
+                <button
+                  type="button"
+                  onClick={openCreateDrawer}
+                  className="btn-primary inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 text-[13px] font-medium"
+                >
+                  <IconPlus />
+                  新增申请
+                </button>
+              </div>
             </div>
           </div>
         </header>
 
-        <section className="mt-5 grid items-start gap-4 xl:grid-cols-[1.7fr_1fr_1fr]">
+        <section className="mt-5 grid items-start gap-4 lg:grid-cols-[1.7fr_1fr_1fr]">
           <PanelCard
             title="优先处理区"
             description="系统根据当前流程节点与关键时间自动生成提醒"
             icon={<IconSpark />}
             iconTone="indigo"
+            stackHeaderOnNarrow
             extra={
-              <div className="grid shrink-0 grid-cols-3 gap-1.5">
+              <div className="grid w-full grid-cols-3 gap-1.5 sm:shrink-0">
                 {dashboardStats.map((item, idx) => {
                   const toneStyles = [
                     { bg: 'bg-indigo-50/70', num: 'text-indigo-700', dot: 'bg-indigo-500' },
@@ -658,7 +661,7 @@ function App() {
           </div>
         </section>
 
-        <main className="mt-3 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 card-soft xl:p-4">
+        <main className="mt-3 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 card-soft lg:p-4">
           {viewMode === '看板视图' ? (
             <div className="h-full overflow-x-auto">
               <div className="grid min-w-[1260px] grid-cols-6 gap-3">
@@ -887,6 +890,7 @@ function PanelCard({
   icon,
   iconTone = 'indigo',
   children,
+  stackHeaderOnNarrow,
 }: {
   title: string
   description: string
@@ -894,6 +898,8 @@ function PanelCard({
   icon?: React.ReactNode
   iconTone?: 'indigo' | 'amber' | 'violet' | 'emerald' | 'rose'
   children: React.ReactNode
+  /** 仅窄屏：标题与右侧区域上下排列，避免与统计块抢宽度；sm 及以上与原先一致 */
+  stackHeaderOnNarrow?: boolean
 }) {
   const iconToneMap: Record<string, string> = {
     indigo: 'bg-indigo-50 text-indigo-600 ring-indigo-100',
@@ -904,9 +910,27 @@ function PanelCard({
   }
 
   return (
-    <section className="flex h-[300px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white card-soft">
-      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 pb-3 pt-4">
-        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+    <section
+      className={
+        stackHeaderOnNarrow
+          ? 'flex min-h-[280px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white card-soft h-auto max-h-[min(520px,85vh)] sm:h-[300px] sm:max-h-none'
+          : 'flex h-[300px] min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white card-soft'
+      }
+    >
+      <div
+        className={
+          stackHeaderOnNarrow
+            ? 'flex flex-col gap-3 border-b border-slate-100 px-4 pb-3 pt-4 sm:flex-row sm:items-start sm:justify-between sm:gap-3'
+            : 'flex items-start justify-between gap-3 border-b border-slate-100 px-4 pb-3 pt-4'
+        }
+      >
+        <div
+          className={
+            stackHeaderOnNarrow
+              ? 'flex w-full min-w-0 items-start gap-2.5 sm:flex-1'
+              : 'flex min-w-0 flex-1 items-start gap-2.5'
+          }
+        >
           {icon ? (
             <span className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ${iconToneMap[iconTone]}`}>
               {icon}
@@ -917,7 +941,11 @@ function PanelCard({
             <p className="mt-0.5 text-caption text-slate-500">{description}</p>
           </div>
         </div>
-        {extra}
+        {stackHeaderOnNarrow ? (
+          <div className="w-full min-w-0 sm:w-auto sm:shrink-0">{extra}</div>
+        ) : (
+          extra
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-3">{children}</div>
     </section>

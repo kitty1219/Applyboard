@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/*
+ * Slightly smaller root font (≈92% of browser default) so the UI at 100% zoom
+ * matches the denser look many users get when zooming out. Layout breakpoints
+ * below use lg (1024px) so laptop-width viewports still get the 3-column row.
+ */
+html {
+  font-size: 92%;
+}
+
 :root {
   /* Brand accent */
   --brand-50: #eef2ff;
@@ -47,9 +56,9 @@ textarea {
 }
 
 /* ---------- Typography scale (single source of truth) ---------- */
-.text-display { font-size: 22px; line-height: 28px; letter-spacing: -0.02em; font-weight: 600; }
-@media (min-width: 1280px) {
-  .text-display { font-size: 26px; line-height: 32px; }
+.text-display { font-size: 20px; line-height: 26px; letter-spacing: -0.02em; font-weight: 600; }
+@media (min-width: 1024px) {
+  .text-display { font-size: 22px; line-height: 28px; }
 }
 .text-title { font-size: 15px; line-height: 22px; font-weight: 600; letter-spacing: -0.005em; }
 .text-title-lg { font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
