@@ -22,7 +22,7 @@ export const mockApplications: Application[] = [
     link: 'https://zhaopin.meituan.com/web/position/detail?jobUnionId=4220518746&highlightType=campus',
     currentStage: '一面',
     stageMeta: {
-      interview1Time: fixedDate(4, 22, 15, 0),
+      interview1Time: fixedDate(4, 20, 15, 0),
     },
     jdNote: '偏 AI 产品设计与业务落地，需要理解大模型能力边界、用户场景拆解和功能方案输出。',
     resumeVersion: '产品经理版 V3',
@@ -201,7 +201,7 @@ export const mockEmails: EmailAlert[] = [
     from: 'campus@meituan.com',
     companyHint: '美团',
     subject: '【美团】AI产品经理一面安排',
-    snippet: '请于 4 月 22 日 15:00 参加视频一面，并提前 10 分钟进入会议室。',
+    snippet: '请于 4 月 20 日 15:00 参加视频一面，并提前 10 分钟进入会议室。',
     receivedAt: agoFromNow({ hours: 4 }),
     isRead: true,
   },

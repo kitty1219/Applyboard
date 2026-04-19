@@ -91,6 +91,14 @@ const IconClose = ({ className = '' }: { className?: string }) => (
   </svg>
 )
 
+const IconTrash = ({ className = '' }: { className?: string }) => (
+  <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 6h18" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <path d="M10 11v6M14 11v6" />
+  </svg>
+)
+
 const IconExternal = ({ className = '' }: { className?: string }) => (
   <svg className={className} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M15 3h6v6" />
@@ -363,20 +371,11 @@ function App() {
     )
   }
 
-  function deleteApplication(applicationId: string) {
-    const target = applications.find((application) => application.id === applicationId)
-    if (!target) {
+  function handleDeleteApplication(applicationId: string) {
+    const confirmed = window.confirm('确定删除这条申请吗？删除后无法恢复。')
+    if (!confirmed) {
       return
     }
-
-    const shouldDelete = window.confirm(
-      `确认删除“${target.company} ${target.position}”这条申请记录吗？此操作仅会删除当前本地 Demo 数据。`,
-    )
-
-    if (!shouldDelete) {
-      return
-    }
-
     setApplications((current) => current.filter((application) => application.id !== applicationId))
     setSelectedApplicationId((current) => (current === applicationId ? null : current))
     setStatusEditor((current) =>
@@ -861,7 +860,7 @@ function App() {
         onSaveStage={(applicationId) =>
           updateApplicationStage(applicationId, currentStatusDraft, currentStatusStageMeta)
         }
-        onDeleteApplication={deleteApplication}
+        onDelete={handleDeleteApplication}
         onClose={() => setSelectedApplicationId(null)}
       />
 
@@ -1283,7 +1282,7 @@ function ApplicationDetailPanel({
   onStatusDraftChange,
   onStatusStageMetaChange,
   onSaveStage,
-  onDeleteApplication,
+  onDelete,
   onClose,
 }: {
   application: Application | null
@@ -1293,7 +1292,7 @@ function ApplicationDetailPanel({
   onStatusDraftChange: (stage: ApplicationStage) => void
   onStatusStageMetaChange: (key: keyof StageMeta, value: string) => void
   onSaveStage: (applicationId: string) => void
-  onDeleteApplication: (applicationId: string) => void
+  onDelete: (applicationId: string) => void
   onClose: () => void
 }) {
   return (
@@ -1373,22 +1372,13 @@ function ApplicationDetailPanel({
                       选择新的流程节点后保存，系统会自动更新最近更新时间。
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onDeleteApplication(application.id)}
-                      className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-[12px] font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
-                    >
-                      删除申请
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSaveStage(application.id)}
-                      className="btn-primary shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] font-medium"
-                    >
-                      保存状态
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onSaveStage(application.id)}
+                    className="btn-primary shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] font-medium"
+                  >
+                    保存状态
+                  </button>
                 </div>
 
                 <div className="mt-4 grid gap-2.5 md:grid-cols-[1fr_auto] md:items-end">
@@ -1468,6 +1458,20 @@ function ApplicationDetailPanel({
                   )}
                 </div>
               </section>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3">
+              <button
+                type="button"
+                onClick={() => onDelete(application.id)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2 text-[13px] font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
+              >
+                <IconTrash className="shrink-0" />
+                删除申请
+              </button>
+              <p className="text-right text-[11px] leading-4 text-slate-400">
+                删除后将从看板与列表中移除
+              </p>
             </div>
           </div>
         ) : null}
