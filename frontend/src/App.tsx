@@ -363,6 +363,29 @@ function App() {
     )
   }
 
+  function deleteApplication(applicationId: string) {
+    const target = applications.find((application) => application.id === applicationId)
+    if (!target) {
+      return
+    }
+
+    const shouldDelete = window.confirm(
+      `确认删除“${target.company} ${target.position}”这条申请记录吗？此操作仅会删除当前本地 Demo 数据。`,
+    )
+
+    if (!shouldDelete) {
+      return
+    }
+
+    setApplications((current) => current.filter((application) => application.id !== applicationId))
+    setSelectedApplicationId((current) => (current === applicationId ? null : current))
+    setStatusEditor((current) =>
+      current.applicationId === applicationId
+        ? { applicationId: null, stage: '待投递', stageMeta: {} }
+        : current,
+    )
+  }
+
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const newApplication = createApplicationFromForm(formState)
@@ -838,6 +861,7 @@ function App() {
         onSaveStage={(applicationId) =>
           updateApplicationStage(applicationId, currentStatusDraft, currentStatusStageMeta)
         }
+        onDeleteApplication={deleteApplication}
         onClose={() => setSelectedApplicationId(null)}
       />
 
@@ -1259,6 +1283,7 @@ function ApplicationDetailPanel({
   onStatusDraftChange,
   onStatusStageMetaChange,
   onSaveStage,
+  onDeleteApplication,
   onClose,
 }: {
   application: Application | null
@@ -1268,6 +1293,7 @@ function ApplicationDetailPanel({
   onStatusDraftChange: (stage: ApplicationStage) => void
   onStatusStageMetaChange: (key: keyof StageMeta, value: string) => void
   onSaveStage: (applicationId: string) => void
+  onDeleteApplication: (applicationId: string) => void
   onClose: () => void
 }) {
   return (
@@ -1347,13 +1373,22 @@ function ApplicationDetailPanel({
                       选择新的流程节点后保存，系统会自动更新最近更新时间。
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onSaveStage(application.id)}
-                    className="btn-primary shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] font-medium"
-                  >
-                    保存状态
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onDeleteApplication(application.id)}
+                      className="inline-flex items-center justify-center whitespace-nowrap rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-[12px] font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
+                    >
+                      删除申请
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSaveStage(application.id)}
+                      className="btn-primary shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] font-medium"
+                    >
+                      保存状态
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-4 grid gap-2.5 md:grid-cols-[1fr_auto] md:items-end">
