@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { loadApplicationsFromStorage, saveApplicationsToStorage } from './applicationStorage'
 import { mockApplications, mockEmails, mockResumes } from './mockData'
 import type { Application, ApplicationStage, ResumeProfile, StageMeta, ViewMode } from './types'
 import { PROGRESS_AXIS_STEPS, STAGE_OPTIONS } from './types'
@@ -29,6 +30,12 @@ type StageFieldConfig = {
   key: keyof StageMeta
   label: string
   required?: boolean
+}
+
+type CanvasDragState = {
+  pointerId: number | null
+  startX: number
+  startScrollLeft: number
 }
 
 const viewModes: ViewMode[] = ['看板视图', '列表视图']
@@ -221,7 +228,27 @@ function createApplicationFromForm(form: DrawerFormState): Application {
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('看板视图')
   const [searchTerm, setSearchTerm] = useState('')
-  const [applications, setApplications] = useState<Application[]>(mockApplications)
+  const boardScrollRef = useRef<HTMLDivElement | null>(null)
+  const boardDragStateRef = useRef<CanvasDragState>({
+    pointerId: null,
+    startX: 0,
+    startScrollLeft: 0,
+  })
+  const [isBoardDragging, setIsBoardDragging] = useState(false)
+  const listScrollRef = useRef<HTMLDivElement | null>(null)
+  const listDragStateRef = useRef<CanvasDragState>({
+    pointerId: null,
+    startX: 0,
+    startScrollLeft: 0,
+  })
+  const [isListDragging, setIsListDragging] = useState(false)
+  const [applications, setApplications] = useState<Application[]>(
+    () => loadApplicationsFromStorage() ?? mockApplications,
+  )
+
+  useEffect(() => {
+    saveApplicationsToStorage(applications)
+  }, [applications])
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
@@ -383,6 +410,102 @@ function App() {
         ? { applicationId: null, stage: '待投递', stageMeta: {} }
         : current,
     )
+  }
+
+  function handleRestoreDemoData() {
+    const confirmed = window.confirm(
+      '将申请列表恢复为内置示例数据，本地已保存的修改会被覆盖。确定继续？',
+    )
+    if (!confirmed) {
+      return
+    }
+    setApplications(structuredClone(mockApplications))
+    setSelectedApplicationId(null)
+    setStatusEditor({ applicationId: null, stage: '待投递', stageMeta: {} })
+    setIsDrawerOpen(false)
+    setFormState(initialFormState)
+    setSearchTerm('')
+  }
+
+  function shouldIgnoreCanvasDragTarget(target: EventTarget | null) {
+    return target instanceof Element && target.closest('button, a, input, select, textarea, label')
+  }
+
+  function startCanvasDragging(
+    event: React.PointerEvent<HTMLDivElement>,
+    scrollRef: React.RefObject<HTMLDivElement | null>,
+    dragStateRef: React.MutableRefObject<CanvasDragState>,
+    setDragging: React.Dispatch<React.SetStateAction<boolean>>,
+  ) {
+    if (event.pointerType === 'touch' || shouldIgnoreCanvasDragTarget(event.target)) {
+      return
+    }
+    const container = scrollRef.current
+    if (!container) {
+      return
+    }
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScrollLeft: container.scrollLeft,
+    }
+    setDragging(true)
+    container.setPointerCapture(event.pointerId)
+  }
+
+  function moveCanvasDragging(
+    event: React.PointerEvent<HTMLDivElement>,
+    scrollRef: React.RefObject<HTMLDivElement | null>,
+    dragStateRef: React.MutableRefObject<CanvasDragState>,
+    isDragging: boolean,
+  ) {
+    if (!isDragging || dragStateRef.current.pointerId !== event.pointerId) {
+      return
+    }
+    const container = scrollRef.current
+    if (!container) {
+      return
+    }
+    const deltaX = event.clientX - dragStateRef.current.startX
+    container.scrollLeft = dragStateRef.current.startScrollLeft - deltaX
+  }
+
+  function stopCanvasDragging(
+    pointerId: number | undefined,
+    scrollRef: React.RefObject<HTMLDivElement | null>,
+    dragStateRef: React.MutableRefObject<CanvasDragState>,
+    setDragging: React.Dispatch<React.SetStateAction<boolean>>,
+  ) {
+    const container = scrollRef.current
+    if (container && typeof pointerId === 'number' && container.hasPointerCapture(pointerId)) {
+      container.releasePointerCapture(pointerId)
+    }
+    dragStateRef.current.pointerId = null
+    setDragging(false)
+  }
+
+  function handleBoardPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    startCanvasDragging(event, boardScrollRef, boardDragStateRef, setIsBoardDragging)
+  }
+
+  function handleBoardPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    moveCanvasDragging(event, boardScrollRef, boardDragStateRef, isBoardDragging)
+  }
+
+  function stopBoardDragging(pointerId?: number) {
+    stopCanvasDragging(pointerId, boardScrollRef, boardDragStateRef, setIsBoardDragging)
+  }
+
+  function handleListPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    startCanvasDragging(event, listScrollRef, listDragStateRef, setIsListDragging)
+  }
+
+  function handleListPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    moveCanvasDragging(event, listScrollRef, listDragStateRef, isListDragging)
+  }
+
+  function stopListDragging(pointerId?: number) {
+    stopCanvasDragging(pointerId, listScrollRef, listDragStateRef, setIsListDragging)
   }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -683,12 +806,27 @@ function App() {
 
         <main className="mt-3 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 card-soft lg:p-4">
           {viewMode === '看板视图' ? (
-            <div className="h-full overflow-x-auto">
-              <div className="grid min-w-[1260px] grid-cols-6 gap-3">
+            <div
+              ref={boardScrollRef}
+              onPointerDown={handleBoardPointerDown}
+              onPointerMove={handleBoardPointerMove}
+              onPointerUp={(event) => stopBoardDragging(event.pointerId)}
+              onPointerCancel={(event) => stopBoardDragging(event.pointerId)}
+              onPointerLeave={(event) => {
+                if (event.pointerType !== 'mouse') {
+                  return
+                }
+                stopBoardDragging(event.pointerId)
+              }}
+              className={`h-[min(84vh,1040px)] overflow-x-auto overflow-y-hidden pb-3 ${
+                isBoardDragging ? 'cursor-grabbing select-none' : 'cursor-grab'
+              }`}
+            >
+              <div className="grid h-full min-w-[1260px] grid-cols-6 items-start gap-3">
                 {groupedApplications.map((group) => {
                   const accent = getMainStageAccent(group.stage)
                   return (
-                    <div key={group.stage} className="flex flex-col rounded-lg border border-slate-200/70 bg-slate-50/60 p-2.5">
+                    <div key={group.stage} className="flex h-full min-h-0 flex-col rounded-lg border border-slate-200/70 bg-slate-50/60 p-2.5">
                       <div className="mb-2.5 flex items-center justify-between px-1">
                         <div className="flex items-center gap-1.5">
                           <span className={`h-2 w-2 rounded-full ${accent.dot} shadow-[0_0_0_3px_rgba(255,255,255,1)]`} />
@@ -699,7 +837,7 @@ function App() {
                         </span>
                       </div>
 
-                      <div className="space-y-2">
+                      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                         {group.items.length > 0 ? (
                           group.items.map((application) => (
                             <ApplicationCard
@@ -720,7 +858,22 @@ function App() {
             </div>
           ) : (
             <div className="overflow-hidden rounded-lg border border-slate-200">
-              <div className="overflow-x-auto">
+              <div
+                ref={listScrollRef}
+                onPointerDown={handleListPointerDown}
+                onPointerMove={handleListPointerMove}
+                onPointerUp={(event) => stopListDragging(event.pointerId)}
+                onPointerCancel={(event) => stopListDragging(event.pointerId)}
+                onPointerLeave={(event) => {
+                  if (event.pointerType !== 'mouse') {
+                    return
+                  }
+                  stopListDragging(event.pointerId)
+                }}
+                className={`h-[min(84vh,1040px)] overflow-auto ${
+                  isListDragging ? 'cursor-grabbing select-none' : 'cursor-grab'
+                }`}
+              >
                 <table className="min-w-[1400px] divide-y divide-slate-200 text-left">
                   <thead className="bg-slate-50/80">
                     <tr className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
@@ -737,7 +890,12 @@ function App() {
                         '最近更新时间',
                         '操作',
                       ].map((title) => (
-                        <th key={title} className="px-4 py-3 font-medium">
+                        <th
+                          key={title}
+                          className={`px-4 py-3 font-medium ${
+                            title === '操作' ? 'min-w-[96px] whitespace-nowrap' : ''
+                          }`}
+                        >
                           {title}
                         </th>
                       ))}
@@ -811,14 +969,14 @@ function App() {
                           <ProgressMiniAxis currentStage={application.currentStage} />
                         </td>
                         <td className="tabular px-4 py-3.5 text-[13px] text-slate-500">{formatDateTime(application.updatedAt)}</td>
-                        <td className="px-4 py-3.5">
+                        <td className="min-w-[96px] whitespace-nowrap px-4 py-3.5">
                           <button
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation()
                               openApplicationDetail(application.id)
                             }}
-                            className="btn-primary inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium"
+                            className="btn-primary inline-flex shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-[12px] font-medium"
                           >
                             更新状态
                           </button>
@@ -831,6 +989,16 @@ function App() {
             </div>
           )}
         </main>
+
+        <footer className="mt-10 flex justify-center pb-2 pt-1">
+          <button
+            type="button"
+            onClick={handleRestoreDemoData}
+            className="text-[11px] text-slate-400/90 transition hover:text-slate-600 hover:underline hover:decoration-slate-300 hover:underline-offset-2"
+          >
+            恢复示例数据
+          </button>
+        </footer>
       </div>
 
       <ApplicationDrawer
