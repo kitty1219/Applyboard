@@ -34,6 +34,14 @@ type ResumeUploadFormState = {
   file: File | null
 }
 
+type ApplicationDetailFormState = {
+  company: string
+  position: string
+  link: string
+  resumeVersion: string
+  jdNote: string
+}
+
 type StageFieldConfig = {
   key: keyof StageMeta
   label: string
@@ -174,6 +182,16 @@ const initialResumeUploadState: ResumeUploadFormState = {
   category: '',
   note: '',
   file: null,
+}
+
+function createApplicationDetailForm(application: Application): ApplicationDetailFormState {
+  return {
+    company: application.company,
+    position: application.position,
+    link: application.link,
+    resumeVersion: application.resumeVersion ?? '',
+    jdNote: application.jdNote ?? '',
+  }
 }
 
 function getStageFieldConfigs(stage: ApplicationStage): StageFieldConfig[] {
@@ -447,6 +465,56 @@ function App() {
           : application,
       ),
     )
+  }
+
+  function updateApplicationDetails(
+    applicationId: string,
+    nextDetails: ApplicationDetailFormState,
+  ) {
+    const company = nextDetails.company.trim()
+    const position = nextDetails.position.trim()
+    const link = nextDetails.link.trim()
+    const resumeVersion = nextDetails.resumeVersion.trim()
+    const jdNote = nextDetails.jdNote.trim()
+
+    if (!company || !position || !link) {
+      window.alert('公司名称、岗位名称和招聘链接不能为空。')
+      return
+    }
+
+    const now = new Date().toISOString()
+    const previousApplication = applications.find((application) => application.id === applicationId)
+
+    setApplications((current) =>
+      current.map((application) =>
+        application.id === applicationId
+          ? {
+              ...application,
+              company,
+              position,
+              link,
+              resumeVersion,
+              jdNote,
+              updatedAt: now,
+            }
+          : application,
+      ),
+    )
+
+    if (resumeVersion && previousApplication?.resumeVersion !== resumeVersion) {
+      setResumes((current) =>
+        current.map((resume) =>
+          resume.name === resumeVersion
+            ? {
+                ...resume,
+                usedCount: resume.usedCount + 1,
+                lastUsed: now,
+                updatedAt: now,
+              }
+            : resume,
+        ),
+      )
+    }
   }
 
   function handleDeleteApplication(applicationId: string) {
@@ -1135,6 +1203,7 @@ function App() {
 
       <ApplicationDetailPanel
         application={selectedApplication}
+        resumes={resumes}
         statusDraft={currentStatusDraft}
         statusStageMeta={currentStatusStageMeta}
         statusDynamicFields={statusDynamicFields}
@@ -1149,6 +1218,7 @@ function App() {
         onSaveStage={(applicationId) =>
           updateApplicationStage(applicationId, currentStatusDraft, currentStatusStageMeta)
         }
+        onSaveDetails={updateApplicationDetails}
         onDelete={handleDeleteApplication}
         onClose={() => setSelectedApplicationId(null)}
       />
@@ -1580,25 +1650,42 @@ function Field({
 
 function ApplicationDetailPanel({
   application,
+  resumes,
   statusDraft,
   statusStageMeta,
   statusDynamicFields,
   onStatusDraftChange,
   onStatusStageMetaChange,
   onSaveStage,
+  onSaveDetails,
   onDelete,
   onClose,
 }: {
   application: Application | null
+  resumes: ResumeProfile[]
   statusDraft: ApplicationStage
   statusStageMeta: StageMeta
   statusDynamicFields: StageFieldConfig[]
   onStatusDraftChange: (stage: ApplicationStage) => void
   onStatusStageMetaChange: (key: keyof StageMeta, value: string) => void
   onSaveStage: (applicationId: string) => void
+  onSaveDetails: (applicationId: string, nextDetails: ApplicationDetailFormState) => void
   onDelete: (applicationId: string) => void
   onClose: () => void
 }) {
+  const [detailForm, setDetailForm] = useState<ApplicationDetailFormState | null>(null)
+
+  useEffect(() => {
+    setDetailForm(application ? createApplicationDetailForm(application) : null)
+  }, [application])
+
+  function updateDetailField<Key extends keyof ApplicationDetailFormState>(
+    key: Key,
+    value: ApplicationDetailFormState[Key],
+  ) {
+    setDetailForm((current) => (current ? { ...current, [key]: value } : current))
+  }
+
   return (
     <>
       <div
@@ -1731,23 +1818,75 @@ function ApplicationDetailPanel({
                 </div>
               </section>
 
-              <section className="grid gap-2 rounded-xl border border-slate-200 bg-white p-4 card-soft">
-                <SectionTitle>基础信息</SectionTitle>
-                <div className="mt-1 grid gap-2">
-                  <InfoItem label="公司名称" value={application.company} />
-                  <InfoItem label="岗位名称" value={application.position} />
-                  <InfoItem label="招聘链接" value={application.link} />
-                  <InfoItem label="使用简历版本" value={application.resumeVersion || '未指定'} />
-                  <InfoItem label="创建时间" value={formatDateTime(application.createdAt)} />
-                  <InfoItem label="最近更新时间" value={formatDateTime(application.updatedAt)} />
-                </div>
-              </section>
-
               <section className="rounded-xl border border-slate-200 bg-white p-4 card-soft">
-                <SectionTitle>岗位备注 / JD 摘要</SectionTitle>
-                <p className="mt-2 text-[13px] leading-6 text-slate-600">
-                  {application.jdNote || '暂无备注'}
-                </p>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-title text-slate-900">编辑申请信息</div>
+                    <div className="mt-0.5 text-caption text-slate-500">
+                      公司、岗位、链接、简历版本和备注都可以随时更新。
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => detailForm && onSaveDetails(application.id, detailForm)}
+                    className="btn-primary shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] font-medium"
+                  >
+                    保存信息
+                  </button>
+                </div>
+
+                {detailForm ? (
+                  <div className="mt-4 grid gap-3">
+                    <Field label="公司名称" required>
+                      <input
+                        value={detailForm.company}
+                        onChange={(event) => updateDetailField('company', event.target.value)}
+                        className="input-base"
+                      />
+                    </Field>
+                    <Field label="岗位名称" required>
+                      <input
+                        value={detailForm.position}
+                        onChange={(event) => updateDetailField('position', event.target.value)}
+                        className="input-base"
+                      />
+                    </Field>
+                    <Field label="招聘链接" required>
+                      <input
+                        value={detailForm.link}
+                        onChange={(event) => updateDetailField('link', event.target.value)}
+                        className="input-base"
+                      />
+                    </Field>
+                    <Field label="使用简历版本">
+                      <input
+                        list="detail-resume-version-options"
+                        value={detailForm.resumeVersion}
+                        onChange={(event) => updateDetailField('resumeVersion', event.target.value)}
+                        placeholder="未指定"
+                        className="input-base"
+                      />
+                      <datalist id="detail-resume-version-options">
+                        {resumes.map((resume) => (
+                          <option key={resume.id} value={resume.name} />
+                        ))}
+                      </datalist>
+                    </Field>
+                    <Field label="岗位备注 / JD 摘要">
+                      <textarea
+                        value={detailForm.jdNote}
+                        onChange={(event) => updateDetailField('jdNote', event.target.value)}
+                        rows={5}
+                        placeholder="暂无备注"
+                        className="input-base resize-none"
+                      />
+                    </Field>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <InfoItem label="创建时间" value={formatDateTime(application.createdAt)} />
+                      <InfoItem label="最近更新时间" value={formatDateTime(application.updatedAt)} />
+                    </div>
+                  </div>
+                ) : null}
               </section>
 
               <section className="rounded-xl border border-slate-200 bg-white p-4 card-soft">
