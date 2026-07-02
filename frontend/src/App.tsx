@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { loadApplicationsFromStorage, saveApplicationsToStorage } from './applicationStorage'
 import { mockApplications, mockEmails, mockResumes } from './mockData'
+import { loadResumesFromStorage, saveResumesToStorage } from './resumeStorage'
 import type { Application, ApplicationStage, ResumeProfile, StageMeta, ViewMode } from './types'
 import { PROGRESS_AXIS_STEPS, STAGE_OPTIONS } from './types'
 import {
@@ -24,6 +25,13 @@ type DrawerFormState = {
   jdNote: string
   resumeVersion: string
   stageMeta: StageMeta
+}
+
+type ResumeUploadFormState = {
+  name: string
+  category: string
+  note: string
+  file: File | null
 }
 
 type StageFieldConfig = {
@@ -161,6 +169,13 @@ const initialFormState: DrawerFormState = {
   stageMeta: {},
 }
 
+const initialResumeUploadState: ResumeUploadFormState = {
+  name: '',
+  category: '',
+  note: '',
+  file: null,
+}
+
 function getStageFieldConfigs(stage: ApplicationStage): StageFieldConfig[] {
   switch (stage) {
     case '待投递':
@@ -225,6 +240,33 @@ function createApplicationFromForm(form: DrawerFormState): Application {
   }
 }
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+        return
+      }
+      reject(new Error('无法读取文件内容'))
+    }
+    reader.onerror = () => reject(reader.error ?? new Error('无法读取文件内容'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function formatFileSize(size?: number): string {
+  if (!size) {
+    return '未记录'
+  }
+
+  if (size < 1024 * 1024) {
+    return `${Math.max(1, Math.round(size / 1024))} KB`
+  }
+
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('看板视图')
   const [searchTerm, setSearchTerm] = useState('')
@@ -249,6 +291,13 @@ function App() {
   useEffect(() => {
     saveApplicationsToStorage(applications)
   }, [applications])
+  const [resumes, setResumes] = useState<ResumeProfile[]>(
+    () => loadResumesFromStorage() ?? mockResumes,
+  )
+
+  useEffect(() => {
+    saveResumesToStorage(resumes)
+  }, [resumes])
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
@@ -256,6 +305,8 @@ function App() {
   const [isResumeUploadModalOpen, setIsResumeUploadModalOpen] = useState(false)
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false)
   const [selectedResume, setSelectedResume] = useState<ResumeProfile | null>(null)
+  const [resumeUploadForm, setResumeUploadForm] = useState<ResumeUploadFormState>(initialResumeUploadState)
+  const [isSavingResume, setIsSavingResume] = useState(false)
   const [formState, setFormState] = useState<DrawerFormState>(initialFormState)
   const [statusEditor, setStatusEditor] = useState<{
     applicationId: string | null
@@ -512,6 +563,20 @@ function App() {
     event.preventDefault()
     const newApplication = createApplicationFromForm(formState)
     setApplications((current) => [newApplication, ...current])
+    if (newApplication.resumeVersion) {
+      setResumes((current) =>
+        current.map((resume) =>
+          resume.name === newApplication.resumeVersion
+            ? {
+                ...resume,
+                usedCount: resume.usedCount + 1,
+                lastUsed: newApplication.createdAt,
+                updatedAt: newApplication.createdAt,
+              }
+            : resume,
+        ),
+      )
+    }
     setSelectedApplicationId(newApplication.id)
     setStatusEditor({
       applicationId: newApplication.id,
@@ -521,6 +586,52 @@ function App() {
     setIsDrawerOpen(false)
     setViewMode('看板视图')
     setFormState(initialFormState)
+  }
+
+  async function handleResumeUploadSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!resumeUploadForm.file) {
+      window.alert('请先选择一个简历文件。')
+      return
+    }
+
+    setIsSavingResume(true)
+    try {
+      const now = new Date().toISOString()
+      const fileDataUrl = await readFileAsDataUrl(resumeUploadForm.file)
+      const newResume: ResumeProfile = {
+        id: `resume-${crypto.randomUUID()}`,
+        name: resumeUploadForm.name.trim() || resumeUploadForm.file.name.replace(/\.[^.]+$/, ''),
+        category: resumeUploadForm.category.trim() || '未分类',
+        usedCount: 0,
+        lastUsed: now,
+        fileName: resumeUploadForm.file.name,
+        fileType: resumeUploadForm.file.type || 'application/octet-stream',
+        fileSize: resumeUploadForm.file.size,
+        fileDataUrl,
+        note: resumeUploadForm.note.trim(),
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      setResumes((current) => [newResume, ...current])
+      setSelectedResume(newResume)
+      setResumeUploadForm(initialResumeUploadState)
+      setIsResumeUploadModalOpen(false)
+    } catch {
+      window.alert('简历读取失败，请重新选择文件再试。')
+    } finally {
+      setIsSavingResume(false)
+    }
+  }
+
+  function handleDeleteResume(resumeId: string) {
+    const confirmed = window.confirm('确定删除这份简历吗？已关联到申请里的简历名称不会被清空。')
+    if (!confirmed) {
+      return
+    }
+    setResumes((current) => current.filter((resume) => resume.id !== resumeId))
+    setSelectedResume((current) => (current?.id === resumeId ? null : current))
   }
 
   return (
@@ -755,28 +866,37 @@ function App() {
             }
           >
             <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto pr-1">
-              {mockResumes.map((resume) => (
-                <button
-                  key={resume.id}
-                  type="button"
-                  onClick={() => setSelectedResume(resume)}
-                  className="group relative shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-[0_4px_12px_-4px_rgba(139,92,246,0.18)]"
-                >
-                  <span className="absolute left-0 top-0 h-full w-0.5 bg-gradient-to-b from-violet-400 to-violet-200 opacity-0 transition group-hover:opacity-100" />
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-body-md font-semibold text-slate-900">{resume.name}</div>
-                      <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700">
-                        {resume.category}方向
+              {resumes.length > 0 ? (
+                resumes.map((resume) => (
+                  <button
+                    key={resume.id}
+                    type="button"
+                    onClick={() => setSelectedResume(resume)}
+                    className="group relative shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-[0_4px_12px_-4px_rgba(139,92,246,0.18)]"
+                  >
+                    <span className="absolute left-0 top-0 h-full w-0.5 bg-gradient-to-b from-violet-400 to-violet-200 opacity-0 transition group-hover:opacity-100" />
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-body-md font-semibold text-slate-900">{resume.name}</div>
+                        <div className="mt-0.5 inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700">
+                          {resume.category}方向
+                        </div>
+                        {resume.fileName ? (
+                          <div className="mt-1 truncate text-[11px] text-slate-400">{resume.fileName}</div>
+                        ) : null}
                       </div>
+                      <span className="tabular shrink-0 whitespace-nowrap rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
+                        {resume.usedCount} 次
+                      </span>
                     </div>
-                    <span className="tabular shrink-0 whitespace-nowrap rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
-                      {resume.usedCount} 次
-                    </span>
-                  </div>
-                  <div className="tabular mt-2 text-[11px] text-slate-400">最近使用：{formatDateTime(resume.lastUsed)}</div>
-                </button>
-              ))}
+                    <div className="tabular mt-2 text-[11px] text-slate-400">最近使用：{formatDateTime(resume.lastUsed)}</div>
+                  </button>
+                ))
+              ) : (
+                <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-[13px] leading-6 text-slate-500">
+                  还没有保存简历，点击右上角上传第一份。
+                </div>
+              )}
             </div>
           </PanelCard>
         </section>
@@ -1006,6 +1126,7 @@ function App() {
         title="新增申请"
         formState={formState}
         dynamicFields={dynamicFields}
+        resumes={resumes}
         onClose={() => setIsDrawerOpen(false)}
         onSubmit={handleSubmit}
         onFieldChange={updateFormField}
@@ -1046,13 +1167,19 @@ function App() {
         onClose={() => setIsEmailUploadModalOpen(false)}
       />
 
-      <FeaturePlaceholderModal
+      <ResumeUploadModal
         open={isResumeUploadModalOpen}
-        title="上传简历 PDF"
-        description="当前版本仅保留简历 PDF 上传入口，后续版本可支持上传、解析与版本管理。"
-        note="规划方向：支持上传 PDF、提取基本信息、记录版本备注，并和岗位申请进行关联。"
-        confirmText="我知道了"
-        onClose={() => setIsResumeUploadModalOpen(false)}
+        formState={resumeUploadForm}
+        isSaving={isSavingResume}
+        onClose={() => {
+          if (!isSavingResume) {
+            setIsResumeUploadModalOpen(false)
+          }
+        }}
+        onSubmit={handleResumeUploadSubmit}
+        onFieldChange={(key, value) =>
+          setResumeUploadForm((current) => ({ ...current, [key]: value }))
+        }
       />
 
       <FeaturePlaceholderModal
@@ -1067,6 +1194,7 @@ function App() {
       <ResumePreviewModal
         resume={selectedResume}
         onClose={() => setSelectedResume(null)}
+        onDelete={handleDeleteResume}
       />
     </div>
   )
@@ -1271,6 +1399,7 @@ function ApplicationDrawer({
   title,
   formState,
   dynamicFields,
+  resumes,
   onClose,
   onSubmit,
   onFieldChange,
@@ -1280,6 +1409,7 @@ function ApplicationDrawer({
   title: string
   formState: DrawerFormState
   dynamicFields: StageFieldConfig[]
+  resumes: ResumeProfile[]
   onClose: () => void
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
   onFieldChange: <Key extends keyof DrawerFormState>(key: Key, value: DrawerFormState[Key]) => void
@@ -1393,11 +1523,17 @@ function ApplicationDrawer({
 
             <Field label="使用简历版本">
               <input
+                list="resume-version-options"
                 value={formState.resumeVersion}
                 onChange={(event) => onFieldChange('resumeVersion', event.target.value)}
                 placeholder="例如：产品经理版 V3"
                 className="input-base"
               />
+              <datalist id="resume-version-options">
+                {resumes.map((resume) => (
+                  <option key={resume.id} value={resume.name} />
+                ))}
+              </datalist>
             </Field>
           </div>
 
@@ -1766,13 +1902,132 @@ function FeaturePlaceholderModal({
   )
 }
 
+function ResumeUploadModal({
+  open,
+  formState,
+  isSaving,
+  onClose,
+  onSubmit,
+  onFieldChange,
+}: {
+  open: boolean
+  formState: ResumeUploadFormState
+  isSaving: boolean
+  onClose: () => void
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
+  onFieldChange: <Key extends keyof ResumeUploadFormState>(
+    key: Key,
+    value: ResumeUploadFormState[Key],
+  ) => void
+}) {
+  return (
+    <div
+      className={`fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px] px-4 transition-opacity duration-200 ${open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}
+      onClick={onClose}
+    >
+      <form
+        onSubmit={onSubmit}
+        className={`w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 elevated transition-all duration-200 ${open ? 'translate-y-0 scale-100' : 'translate-y-2 scale-[0.98]'}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[15px] font-semibold tracking-tight text-slate-900">上传简历</div>
+            <p className="mt-1 text-[12px] leading-5 text-slate-500">
+              文件会保存在当前浏览器本地，可预览、下载并关联到申请记录。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭"
+            disabled={isSaving}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <IconClose />
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          <Field label="简历文件" required>
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              required
+              onChange={(event) => onFieldChange('file', event.target.files?.[0] ?? null)}
+              className="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-violet-50 file:px-2.5 file:py-1.5 file:text-[12px] file:font-medium file:text-violet-700 hover:border-slate-300"
+            />
+          </Field>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="简历名称">
+              <input
+                value={formState.name}
+                onChange={(event) => onFieldChange('name', event.target.value)}
+                placeholder={formState.file?.name.replace(/\.[^.]+$/, '') || '例如：产品经理版 V3'}
+                className="input-base"
+              />
+            </Field>
+            <Field label="方向分类">
+              <input
+                value={formState.category}
+                onChange={(event) => onFieldChange('category', event.target.value)}
+                placeholder="例如：产品 / 数据 / 运营"
+                className="input-base"
+              />
+            </Field>
+          </div>
+
+          <Field label="备注">
+            <textarea
+              value={formState.note}
+              onChange={(event) => onFieldChange('note', event.target.value)}
+              rows={3}
+              placeholder="可记录适合投递的岗位类型、修改重点等"
+              className="input-base resize-none"
+            />
+          </Field>
+
+          {formState.file ? (
+            <div className="rounded-lg border border-violet-100 bg-violet-50/50 px-3 py-2 text-[12px] text-violet-800">
+              已选择：{formState.file.name} · {formatFileSize(formState.file.size)}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSaving}
+            className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="btn-primary rounded-lg px-3.5 py-2 text-[13px] font-medium disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSaving ? '保存中...' : '保存简历'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function ResumePreviewModal({
   resume,
   onClose,
+  onDelete,
 }: {
   resume: ResumeProfile | null
   onClose: () => void
+  onDelete: (resumeId: string) => void
 }) {
+  const canPreviewPdf = resume?.fileDataUrl && resume.fileType?.includes('pdf')
+
   return (
     <div
       className={`fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px] px-4 transition-opacity duration-200 ${resume ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}
@@ -1802,32 +2057,74 @@ function ResumePreviewModal({
               </button>
             </div>
 
-            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-5">
-              <div className="rounded-lg border border-dashed border-slate-300 bg-white p-5">
-                <div className="text-[14px] font-semibold text-slate-900">简历预览占位</div>
-                <p className="mt-2 text-[13px] leading-6 text-slate-600">
-                  当前版本暂未接入真实 PDF 上传与预览能力，这里先展示简历查看入口和预览占位区域。
-                </p>
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-                    <div className="text-[11px] text-slate-400">简历名称</div>
-                    <div className="mt-0.5 text-[13px] font-medium text-slate-800">{resume.name}</div>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-                    <div className="text-[11px] text-slate-400">简历方向</div>
-                    <div className="mt-0.5 text-[13px] font-medium text-slate-800">{resume.category}</div>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-                    <div className="text-[11px] text-slate-400">最近使用</div>
-                    <div className="tabular mt-0.5 text-[13px] font-medium text-slate-800">
-                      {formatDateTime(resume.lastUsed)}
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 rounded-lg bg-gradient-to-br from-indigo-600 via-indigo-600 to-violet-600 px-3.5 py-2.5 text-[12px] leading-5 text-indigo-50 shadow-[0_6px_16px_-6px_rgba(79,70,229,0.5)]">
-                  后续可在这里接入 PDF 预览、版本比较、下载和关联岗位记录。
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+                <div className="text-[11px] text-slate-400">文件名称</div>
+                <div className="mt-0.5 break-words text-[13px] font-medium text-slate-800">
+                  {resume.fileName || '示例简历'}
                 </div>
               </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+                <div className="text-[11px] text-slate-400">文件大小</div>
+                <div className="tabular mt-0.5 text-[13px] font-medium text-slate-800">
+                  {formatFileSize(resume.fileSize)}
+                </div>
+              </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+                <div className="text-[11px] text-slate-400">最近使用</div>
+                <div className="tabular mt-0.5 text-[13px] font-medium text-slate-800">
+                  {formatDateTime(resume.lastUsed)}
+                </div>
+              </div>
+            </div>
+
+            {resume.note ? (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-[13px] leading-6 text-slate-600">
+                {resume.note}
+              </div>
+            ) : null}
+
+            <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+              {canPreviewPdf ? (
+                <iframe
+                  title={resume.name}
+                  src={resume.fileDataUrl}
+                  className="h-[52vh] min-h-[360px] w-full bg-white"
+                />
+              ) : (
+                <div className="flex min-h-[220px] flex-col items-center justify-center px-6 text-center">
+                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-inset ring-violet-100">
+                    <IconFile />
+                  </div>
+                  <div className="mt-3 text-[14px] font-semibold text-slate-900">
+                    {resume.fileDataUrl ? '该文件类型暂不支持内嵌预览' : '这是一条内置示例简历'}
+                  </div>
+                  <p className="mt-1 max-w-sm text-[13px] leading-6 text-slate-500">
+                    PDF 可以直接预览；Word 文件已保存，可通过下载按钮打开查看。
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => onDelete(resume.id)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2 text-[13px] font-medium text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
+              >
+                <IconTrash />
+                删除简历
+              </button>
+              {resume.fileDataUrl ? (
+                <a
+                  href={resume.fileDataUrl}
+                  download={resume.fileName || `${resume.name}.pdf`}
+                  className="btn-primary inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium"
+                >
+                  <IconUpload className="rotate-180" />
+                  下载文件
+                </a>
+              ) : null}
             </div>
           </>
         ) : null}

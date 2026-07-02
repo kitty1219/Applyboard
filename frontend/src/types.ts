@@ -87,6 +87,13 @@ export type ResumeProfile = {
   category: string
   usedCount: number
   lastUsed: string
+  fileName?: string
+  fileType?: string
+  fileSize?: number
+  fileDataUrl?: string
+  note?: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 export type ViewMode = '看板视图' | '列表视图'
