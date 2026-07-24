@@ -89,17 +89,17 @@ const listTableColumns: {
   sortColumn?: SortableListColumn
   widthClass: string
 }[] = [
-  { title: '公司名称', widthClass: 'min-w-[180px]' },
-  { title: '岗位名称', widthClass: 'min-w-[150px]' },
-  { title: '招聘链接', widthClass: 'min-w-[90px]' },
-  { title: '当前大阶段', widthClass: 'min-w-[105px]' },
-  { title: '当前具体节点', widthClass: 'min-w-[115px]' },
-  { title: '当前关键时间', sortColumn: 'keytime', widthClass: 'min-w-[155px]' },
-  { title: '使用简历版本', widthClass: 'min-w-[165px]' },
-  { title: '风险提醒', sortColumn: 'risk', widthClass: 'min-w-[110px]' },
-  { title: '流程进度', sortColumn: 'progress', widthClass: 'min-w-[280px]' },
-  { title: '最近更新时间', sortColumn: 'updated', widthClass: 'min-w-[115px]' },
-  { title: '操作', widthClass: 'min-w-[100px]' },
+  { title: '公司名称', widthClass: 'min-w-[140px]' },
+  { title: '岗位名称', widthClass: 'min-w-[130px]' },
+  { title: '招聘链接', widthClass: 'min-w-[78px]' },
+  { title: '当前大阶段', widthClass: 'min-w-[90px]' },
+  { title: '当前具体节点', widthClass: 'min-w-[100px]' },
+  { title: '当前关键时间', sortColumn: 'keytime', widthClass: 'min-w-[135px]' },
+  { title: '使用简历版本', widthClass: 'min-w-[145px]' },
+  { title: '风险提醒', sortColumn: 'risk', widthClass: 'min-w-[90px]' },
+  { title: '流程进度', sortColumn: 'progress', widthClass: 'min-w-[230px]' },
+  { title: '最近更新时间', sortColumn: 'updated', widthClass: 'min-w-[100px]' },
+  { title: '操作', widthClass: 'min-w-[90px]' },
 ]
 
 const listSortCycle: Record<SortableListColumn, [ListSortOption, ListSortOption]> = {
@@ -1873,7 +1873,7 @@ function App() {
                   isListDragging ? 'cursor-grabbing select-none' : 'cursor-grab'
                 }`}
               >
-                <table className="min-w-[1565px] divide-y divide-slate-200 text-left">
+                <table className="min-w-[1328px] divide-y divide-slate-200 text-left">
                   <thead className="bg-slate-50/80">
                     <tr className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
                       {listTableColumns.map(({ title, sortColumn, widthClass }) => {
@@ -1888,7 +1888,11 @@ function App() {
                                 ? 'descending'
                                 : undefined
                           }
-                          className={`${widthClass} whitespace-nowrap px-4 py-3 font-medium`}
+                          className={`${widthClass} whitespace-nowrap px-3 py-3 font-medium ${
+                            title === '操作'
+                              ? 'sticky right-0 z-10 border-l border-slate-200 bg-slate-50'
+                              : ''
+                          }`}
                         >
                           {sortColumn ? (
                             <button
@@ -1930,12 +1934,12 @@ function App() {
                     {listApplications.map((application) => (
                       <tr
                         key={application.id}
-                        className="cursor-pointer align-top transition hover:bg-slate-50/60"
+                        className="group cursor-pointer align-top transition hover:bg-slate-50/60"
                         onClick={() => openApplicationDetail(application.id)}
                       >
-                        <td className="px-4 py-3.5 text-sm font-medium text-slate-900">{application.company}</td>
-                        <td className="px-4 py-3.5">
-                          <div className="group relative inline-flex max-w-[250px]">
+                        <td className="px-3 py-3.5 text-sm font-medium text-slate-900">{application.company}</td>
+                        <td className="px-3 py-3.5">
+                          <div className="group relative inline-flex max-w-[210px]">
                             <span className="line-clamp-2 text-sm leading-5 text-slate-700">
                               {application.position}
                             </span>
@@ -1949,7 +1953,7 @@ function App() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3.5">
+                        <td className="px-3 py-3.5">
                           <a
                             href={application.link}
                             target="_blank"
@@ -1961,7 +1965,7 @@ function App() {
                             <IconExternal className="text-slate-400" />
                           </a>
                         </td>
-                        <td className="px-4 py-3.5">
+                        <td className="px-3 py-3.5">
                           {(() => {
                             const accent = getMainStageAccent(getMainStage(application.currentStage))
                             return (
@@ -1972,14 +1976,14 @@ function App() {
                             )
                           })()}
                         </td>
-                        <td className="px-4 py-3.5">
+                        <td className="px-3 py-3.5">
                           <span className="inline-flex whitespace-nowrap rounded-md bg-slate-100 px-1.5 py-0.5 text-[12px] font-medium text-slate-700">
                             {getDetailedStageLabel(application)}
                           </span>
                         </td>
-                        <td className="tabular whitespace-nowrap px-4 py-3.5 text-[13px] text-slate-600">{getCurrentKeyTime(application)}</td>
-                        <td className="px-4 py-3.5 text-[13px] text-slate-600">{application.resumeVersion || '未指定'}</td>
-                        <td className="px-4 py-3.5">
+                        <td className="tabular whitespace-nowrap px-3 py-3.5 text-[13px] text-slate-600">{getCurrentKeyTime(application)}</td>
+                        <td className="px-3 py-3.5 text-[13px] text-slate-600">{application.resumeVersion || '未指定'}</td>
+                        <td className="px-3 py-3.5">
                           <div className="flex max-w-[180px] flex-wrap gap-1">
                             {getRiskBadges(application).length > 0 ? (
                               getRiskBadges(application).map((badge) => (
@@ -1995,11 +1999,11 @@ function App() {
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3.5">
+                        <td className="px-3 py-3.5">
                           <ProgressMiniAxis currentStage={application.currentStage} />
                         </td>
-                        <td className="tabular whitespace-nowrap px-4 py-3.5 text-[13px] text-slate-500">{formatDateTime(application.updatedAt)}</td>
-                        <td className="min-w-[96px] whitespace-nowrap px-4 py-3.5">
+                        <td className="tabular whitespace-nowrap px-3 py-3.5 text-[13px] text-slate-500">{formatDateTime(application.updatedAt)}</td>
+                        <td className="sticky right-0 min-w-[90px] whitespace-nowrap border-l border-slate-100 bg-white px-3 py-3.5 group-hover:bg-slate-50">
                           <button
                             type="button"
                             onClick={(event) => {
@@ -2082,10 +2086,10 @@ function App() {
       <ImportPlaceholderModal
         open={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-        onRestore={(data) => {
-          setApplications(data.applications)
-          setResumes(data.resumes)
-          setResources(data.resources)
+        onImport={(data) => {
+          setApplications((current) => mergeImportedItems(current, data.applications))
+          setResumes((current) => mergeImportedItems(current, data.resumes))
+          setResources((current) => mergeImportedItems(current, data.resources))
           setIsImportModalOpen(false)
         }}
       />
@@ -2823,18 +2827,18 @@ function InfoItem({ label, value }: { label: string; value: string }) {
 function ImportPlaceholderModal({
   open,
   onClose,
-  onRestore,
+  onImport,
 }: {
   open: boolean
   onClose: () => void
-  onRestore: (data: CloudData) => void
+  onImport: (data: CloudData) => void
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState('')
 
-  async function restoreBackup() {
+  async function importData() {
     if (!file) {
-      setError('请先选择备份文件。')
+      setError('请先选择 JSON 数据文件。')
       return
     }
 
@@ -2844,25 +2848,25 @@ function ImportPlaceholderModal({
       const resumes = parsed['applyboard.resumes.v1']
       const resources = parsed['applyboard.job-resources.v1']
       if (!Array.isArray(applications) || !Array.isArray(resumes) || !Array.isArray(resources)) {
-        throw new Error('备份文件缺少 ApplyBoard 数据。')
+        throw new Error('文件中缺少可导入的 ApplyBoard 数据。')
       }
 
       const confirmed = window.confirm(
-        `将恢复 ${applications.length} 条申请、${resumes.length} 份简历和 ${resources.length} 条网址。确定继续？`,
+        `将尝试导入 ${applications.length} 条申请、${resumes.length} 份简历和 ${resources.length} 条网址。现有内容不会被覆盖，确定继续？`,
       )
       if (!confirmed) {
         return
       }
 
-      onRestore({
+      onImport({
         applications: applications as Application[],
         resumes: resumes as ResumeProfile[],
         resources: resources as typeof resources,
       })
       setFile(null)
       setError('')
-    } catch (restoreError) {
-      setError(restoreError instanceof Error ? restoreError.message : '备份文件读取失败。')
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : '数据文件读取失败。')
     }
   }
 
@@ -2887,7 +2891,7 @@ function ImportPlaceholderModal({
           </button>
         </div>
         <p className="mt-2 text-[13px] leading-6 text-slate-600">
-          选择 ApplyBoard JSON 备份文件，恢复申请、简历和网址。
+          选择 ApplyBoard JSON 数据文件，批量添加申请、简历和网址。现有内容会保留，重复记录不会再次导入。
         </p>
         <input
           type="file"
@@ -2913,10 +2917,10 @@ function ImportPlaceholderModal({
           </button>
           <button
             type="button"
-            onClick={() => void restoreBackup()}
+            onClick={() => void importData()}
             className="btn-primary rounded-lg px-3.5 py-2 text-[13px] font-medium"
           >
-            恢复备份
+            开始导入
           </button>
         </div>
       </div>
@@ -3120,6 +3124,21 @@ function AuthModal({
       </div>
     </div>
   )
+}
+
+function mergeImportedItems<T extends { id: string }>(current: T[], imported: T[]): T[] {
+  const knownIds = new Set(current.map((item) => item.id))
+  const newItems: T[] = []
+
+  imported.forEach((item) => {
+    if (!item.id || knownIds.has(item.id)) {
+      return
+    }
+    knownIds.add(item.id)
+    newItems.push(item)
+  })
+
+  return [...current, ...newItems]
 }
 
 function ResumeUploadModal({
