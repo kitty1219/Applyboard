@@ -141,7 +141,7 @@ function getHoursDiff(target?: string): number | null {
   return (time - Date.now()) / (1000 * 60 * 60)
 }
 
-function getRelevantTime(application: Application): string | undefined {
+export function getRelevantTime(application: Application): string | undefined {
   const { currentStage, stageMeta } = application
 
   switch (currentStage) {

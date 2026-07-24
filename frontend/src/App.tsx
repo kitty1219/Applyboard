@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { loadApplicationsFromStorage, saveApplicationsToStorage } from './applicationStorage'
 import { mockApplications, mockEmails, mockResumes } from './mockData'
 import { loadResumesFromStorage, saveResumesToStorage } from './resumeStorage'
-import type { Application, ApplicationStage, ResumeProfile, StageMeta, ViewMode } from './types'
-import { PROGRESS_AXIS_STEPS, STAGE_OPTIONS } from './types'
+import type { Application, ApplicationStage, MainStage, ResumeProfile, StageMeta, ViewMode } from './types'
+import { MAIN_STAGE_OPTIONS, PROGRESS_AXIS_STEPS, STAGE_OPTIONS } from './types'
 import {
   classifyEmail,
   formatDateTime,
@@ -13,6 +13,7 @@ import {
   getMainStage,
   getPriorityItems,
   getProgressStepIndex,
+  getRelevantTime,
   getRiskBadges,
   groupApplicationsByMainStage,
 } from './utils'
@@ -54,7 +55,42 @@ type CanvasDragState = {
   startScrollLeft: number
 }
 
+type CreatedTimeFilter = 'all' | 'today' | '7days' | '30days' | 'custom'
+type KeyTimeFilter = 'all' | 'today' | 'next3days' | 'next7days' | 'overdue' | 'unset' | 'custom'
+type ListSortOption =
+  | 'default'
+  | 'updated-desc'
+  | 'updated-asc'
+  | 'keytime-asc'
+  | 'keytime-desc'
+  | 'progress-desc'
+  | 'progress-asc'
+  | 'risk-desc'
+  | 'risk-asc'
+type SortableListColumn = 'keytime' | 'risk' | 'progress' | 'updated'
+
 const viewModes: ViewMode[] = ['看板视图', '列表视图']
+const LIST_FILTER_REFERENCE_TIME = Date.now()
+const listTableColumns: { title: string; sortColumn?: SortableListColumn }[] = [
+  { title: '公司名称' },
+  { title: '岗位名称' },
+  { title: '招聘链接' },
+  { title: '当前大阶段' },
+  { title: '当前具体节点' },
+  { title: '当前关键时间', sortColumn: 'keytime' },
+  { title: '使用简历版本' },
+  { title: '风险提醒', sortColumn: 'risk' },
+  { title: '流程进度', sortColumn: 'progress' },
+  { title: '最近更新时间', sortColumn: 'updated' },
+  { title: '操作' },
+]
+
+const listSortCycle: Record<SortableListColumn, [ListSortOption, ListSortOption]> = {
+  keytime: ['keytime-asc', 'keytime-desc'],
+  risk: ['risk-desc', 'risk-asc'],
+  progress: ['progress-desc', 'progress-asc'],
+  updated: ['updated-desc', 'updated-asc'],
+}
 
 const toneClassMap: Record<string, string> = {
   amber: 'bg-amber-50 text-amber-700 ring-amber-200/70',
@@ -86,6 +122,59 @@ const priorityAccentBar: Record<string, string> = {
   emerald: 'bg-emerald-400',
   blue: 'bg-sky-400',
   slate: 'bg-slate-300',
+}
+
+function getDayStart(value = new Date()) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime()
+}
+
+function getDayEnd(value = new Date()) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate() + 1).getTime() - 1
+}
+
+function getDateInputStart(value: string): number | null {
+  if (!value) {
+    return null
+  }
+  return new Date(`${value}T00:00:00`).getTime()
+}
+
+function getDateInputEnd(value: string): number | null {
+  if (!value) {
+    return null
+  }
+  return new Date(`${value}T23:59:59.999`).getTime()
+}
+
+function isTimestampInRange(timestamp: number, start: number | null, end: number | null) {
+  return (start === null || timestamp >= start) && (end === null || timestamp <= end)
+}
+
+function getRiskPriority(application: Application) {
+  const tonePriority: Record<string, number> = {
+    rose: 3,
+    amber: 2,
+    slate: 1,
+    emerald: 0,
+  }
+  return Math.max(0, ...getRiskBadges(application).map((badge) => tonePriority[badge.tone] ?? 0))
+}
+
+function compareOptionalNumbers(
+  first: number | null,
+  second: number | null,
+  direction: 'asc' | 'desc',
+) {
+  if (first === null && second === null) {
+    return 0
+  }
+  if (first === null) {
+    return 1
+  }
+  if (second === null) {
+    return -1
+  }
+  return direction === 'asc' ? first - second : second - first
 }
 
 const IconSearch = ({ className = '' }: { className?: string }) => (
@@ -288,6 +377,15 @@ function formatFileSize(size?: number): string {
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('看板视图')
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedMainStages, setSelectedMainStages] = useState<MainStage[]>([])
+  const [createdTimeFilter, setCreatedTimeFilter] = useState<CreatedTimeFilter>('all')
+  const [createdDateStart, setCreatedDateStart] = useState('')
+  const [createdDateEnd, setCreatedDateEnd] = useState('')
+  const [keyTimeFilter, setKeyTimeFilter] = useState<KeyTimeFilter>('all')
+  const [keyDateStart, setKeyDateStart] = useState('')
+  const [keyDateEnd, setKeyDateEnd] = useState('')
+  const [selectedResumeVersions, setSelectedResumeVersions] = useState<string[]>([])
+  const [listSortOption, setListSortOption] = useState<ListSortOption>('default')
   const boardScrollRef = useRef<HTMLDivElement | null>(null)
   const boardDragStateRef = useRef<CanvasDragState>({
     pointerId: null,
@@ -350,6 +448,196 @@ function App() {
         .includes(keyword),
     )
   }, [applications, searchTerm])
+
+  const availableResumeVersions = useMemo(
+    () =>
+      Array.from(
+        new Set(applications.map((application) => application.resumeVersion?.trim() || '未指定')),
+      ).sort((first, second) => first.localeCompare(second, 'zh-CN')),
+    [applications],
+  )
+
+  const activeListFilterCount =
+    (selectedMainStages.length > 0 ? 1 : 0) +
+    (createdTimeFilter !== 'all' ? 1 : 0) +
+    (keyTimeFilter !== 'all' ? 1 : 0) +
+    (selectedResumeVersions.length > 0 ? 1 : 0)
+
+  const listApplications = useMemo(() => {
+    const now = LIST_FILTER_REFERENCE_TIME
+    const referenceDate = new Date(LIST_FILTER_REFERENCE_TIME)
+    const todayStart = getDayStart(referenceDate)
+    const todayEnd = getDayEnd(referenceDate)
+
+    const result = filteredApplications.filter((application) => {
+      if (
+        selectedMainStages.length > 0 &&
+        !selectedMainStages.includes(getMainStage(application.currentStage))
+      ) {
+        return false
+      }
+
+      const createdAt = new Date(application.createdAt).getTime()
+      if (createdTimeFilter === 'today' && !isTimestampInRange(createdAt, todayStart, todayEnd)) {
+        return false
+      }
+      if (createdTimeFilter === '7days' && createdAt < todayStart - 6 * 24 * 60 * 60 * 1000) {
+        return false
+      }
+      if (createdTimeFilter === '30days' && createdAt < todayStart - 29 * 24 * 60 * 60 * 1000) {
+        return false
+      }
+      if (
+        createdTimeFilter === 'custom' &&
+        !isTimestampInRange(
+          createdAt,
+          getDateInputStart(createdDateStart),
+          getDateInputEnd(createdDateEnd),
+        )
+      ) {
+        return false
+      }
+
+      const relevantTime = getRelevantTime(application)
+      const keyTimestamp = relevantTime ? new Date(relevantTime).getTime() : null
+      if (keyTimeFilter === 'unset' && keyTimestamp !== null) {
+        return false
+      }
+      if (keyTimeFilter !== 'all' && keyTimeFilter !== 'unset' && keyTimestamp === null) {
+        return false
+      }
+      if (
+        keyTimeFilter === 'today' &&
+        keyTimestamp !== null &&
+        !isTimestampInRange(keyTimestamp, todayStart, todayEnd)
+      ) {
+        return false
+      }
+      if (
+        keyTimeFilter === 'next3days' &&
+        keyTimestamp !== null &&
+        !isTimestampInRange(keyTimestamp, now, todayEnd + 2 * 24 * 60 * 60 * 1000)
+      ) {
+        return false
+      }
+      if (
+        keyTimeFilter === 'next7days' &&
+        keyTimestamp !== null &&
+        !isTimestampInRange(keyTimestamp, now, todayEnd + 6 * 24 * 60 * 60 * 1000)
+      ) {
+        return false
+      }
+      if (keyTimeFilter === 'overdue' && keyTimestamp !== null && keyTimestamp >= now) {
+        return false
+      }
+      if (
+        keyTimeFilter === 'custom' &&
+        keyTimestamp !== null &&
+        !isTimestampInRange(
+          keyTimestamp,
+          getDateInputStart(keyDateStart),
+          getDateInputEnd(keyDateEnd),
+        )
+      ) {
+        return false
+      }
+
+      const resumeVersion = application.resumeVersion?.trim() || '未指定'
+      return (
+        selectedResumeVersions.length === 0 ||
+        selectedResumeVersions.includes(resumeVersion)
+      )
+    })
+
+    if (listSortOption === 'default') {
+      return result
+    }
+
+    return [...result].sort((first, second) => {
+      switch (listSortOption) {
+        case 'updated-desc':
+          return new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime()
+        case 'updated-asc':
+          return new Date(first.updatedAt).getTime() - new Date(second.updatedAt).getTime()
+        case 'keytime-asc':
+        case 'keytime-desc': {
+          const firstTime = getRelevantTime(first)
+          const secondTime = getRelevantTime(second)
+          return compareOptionalNumbers(
+            firstTime ? new Date(firstTime).getTime() : null,
+            secondTime ? new Date(secondTime).getTime() : null,
+            listSortOption === 'keytime-asc' ? 'asc' : 'desc',
+          )
+        }
+        case 'progress-desc':
+          return getProgressStepIndex(second.currentStage) - getProgressStepIndex(first.currentStage)
+        case 'progress-asc':
+          return getProgressStepIndex(first.currentStage) - getProgressStepIndex(second.currentStage)
+        case 'risk-desc':
+          return getRiskPriority(second) - getRiskPriority(first)
+        case 'risk-asc':
+          return getRiskPriority(first) - getRiskPriority(second)
+        default:
+          return 0
+      }
+    })
+  }, [
+    createdDateEnd,
+    createdDateStart,
+    createdTimeFilter,
+    filteredApplications,
+    keyDateEnd,
+    keyDateStart,
+    keyTimeFilter,
+    listSortOption,
+    selectedMainStages,
+    selectedResumeVersions,
+  ])
+
+  function clearListFilters() {
+    setSelectedMainStages([])
+    setCreatedTimeFilter('all')
+    setCreatedDateStart('')
+    setCreatedDateEnd('')
+    setKeyTimeFilter('all')
+    setKeyDateStart('')
+    setKeyDateEnd('')
+    setSelectedResumeVersions([])
+  }
+
+  function toggleMainStage(stage: MainStage) {
+    setSelectedMainStages((current) =>
+      current.includes(stage) ? current.filter((item) => item !== stage) : [...current, stage],
+    )
+  }
+
+  function toggleResumeVersion(version: string) {
+    setSelectedResumeVersions((current) =>
+      current.includes(version)
+        ? current.filter((item) => item !== version)
+        : [...current, version],
+    )
+  }
+
+  function cycleListSort(column: SortableListColumn) {
+    const [primarySort, secondarySort] = listSortCycle[column]
+    setListSortOption((current) => {
+      if (current === primarySort) {
+        return secondarySort
+      }
+      if (current === secondarySort) {
+        return 'default'
+      }
+      return primarySort
+    })
+  }
+
+  function getListSortDirection(column: SortableListColumn): 'asc' | 'desc' | null {
+    if (!listSortOption.startsWith(`${column}-`)) {
+      return null
+    }
+    return listSortOption.endsWith('-asc') ? 'asc' : 'desc'
+  }
 
   const groupedApplications = useMemo(
     () => groupApplicationsByMainStage(filteredApplications),
@@ -1045,7 +1333,186 @@ function App() {
               </div>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-slate-200">
+            <div className="rounded-lg border border-slate-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/60 px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <details className="group relative">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-700 shadow-sm transition hover:border-indigo-300 hover:text-indigo-700">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M4 5h16M7 12h10M10 19h4" />
+                      </svg>
+                      筛选
+                      {activeListFilterCount > 0 ? (
+                        <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                          {activeListFilterCount}
+                        </span>
+                      ) : null}
+                    </summary>
+                    <div className="absolute left-0 top-full z-40 mt-2 w-[min(720px,calc(100vw-4rem))] rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
+                      <div className="grid gap-5 md:grid-cols-2">
+                        <fieldset>
+                          <legend className="mb-2 text-[12px] font-semibold text-slate-800">大阶段</legend>
+                          <div className="flex flex-wrap gap-2">
+                            {MAIN_STAGE_OPTIONS.map((stage) => (
+                              <label
+                                key={stage}
+                                className={`cursor-pointer rounded-md border px-2.5 py-1.5 text-[12px] transition ${
+                                  selectedMainStages.includes(stage)
+                                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                                    : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedMainStages.includes(stage)}
+                                  onChange={() => toggleMainStage(stage)}
+                                  className="sr-only"
+                                />
+                                {stage}
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
+
+                        <fieldset>
+                          <legend className="mb-2 text-[12px] font-semibold text-slate-800">简历版本</legend>
+                          <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto">
+                            {availableResumeVersions.map((version) => (
+                              <label
+                                key={version}
+                                className={`cursor-pointer rounded-md border px-2.5 py-1.5 text-[12px] transition ${
+                                  selectedResumeVersions.includes(version)
+                                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                                    : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedResumeVersions.includes(version)}
+                                  onChange={() => toggleResumeVersion(version)}
+                                  className="sr-only"
+                                />
+                                {version}
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
+
+                        <fieldset>
+                          <legend className="mb-2 text-[12px] font-semibold text-slate-800">创建时间</legend>
+                          <select
+                            value={createdTimeFilter}
+                            onChange={(event) => setCreatedTimeFilter(event.target.value as CreatedTimeFilter)}
+                            className="input-base py-1.5"
+                          >
+                            <option value="all">全部时间</option>
+                            <option value="today">今天</option>
+                            <option value="7days">近 7 天</option>
+                            <option value="30days">近 30 天</option>
+                            <option value="custom">自定义区间</option>
+                          </select>
+                          {createdTimeFilter === 'custom' ? (
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                              <input
+                                type="date"
+                                aria-label="创建时间开始日期"
+                                value={createdDateStart}
+                                onChange={(event) => setCreatedDateStart(event.target.value)}
+                                className="input-base py-1.5"
+                              />
+                              <input
+                                type="date"
+                                aria-label="创建时间结束日期"
+                                value={createdDateEnd}
+                                onChange={(event) => setCreatedDateEnd(event.target.value)}
+                                className="input-base py-1.5"
+                              />
+                            </div>
+                          ) : null}
+                        </fieldset>
+
+                        <fieldset>
+                          <legend className="mb-2 text-[12px] font-semibold text-slate-800">关键时间</legend>
+                          <select
+                            value={keyTimeFilter}
+                            onChange={(event) => setKeyTimeFilter(event.target.value as KeyTimeFilter)}
+                            className="input-base py-1.5"
+                          >
+                            <option value="all">全部时间</option>
+                            <option value="today">今天</option>
+                            <option value="next3days">未来 3 天</option>
+                            <option value="next7days">未来 7 天</option>
+                            <option value="overdue">已逾期</option>
+                            <option value="unset">未设置</option>
+                            <option value="custom">自定义区间</option>
+                          </select>
+                          {keyTimeFilter === 'custom' ? (
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                              <input
+                                type="date"
+                                aria-label="关键时间开始日期"
+                                value={keyDateStart}
+                                onChange={(event) => setKeyDateStart(event.target.value)}
+                                className="input-base py-1.5"
+                              />
+                              <input
+                                type="date"
+                                aria-label="关键时间结束日期"
+                                value={keyDateEnd}
+                                onChange={(event) => setKeyDateEnd(event.target.value)}
+                                className="input-base py-1.5"
+                              />
+                            </div>
+                          ) : null}
+                        </fieldset>
+                      </div>
+                      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                        <span className="text-[11px] text-slate-400">筛选条件会即时应用，仅影响列表展示</span>
+                        <button
+                          type="button"
+                          onClick={clearListFilters}
+                          disabled={activeListFilterCount === 0}
+                          className="text-[12px] font-medium text-indigo-600 hover:text-indigo-800 disabled:cursor-not-allowed disabled:text-slate-300"
+                        >
+                          清空筛选
+                        </button>
+                      </div>
+                    </div>
+                  </details>
+
+                  {selectedMainStages.length > 0 ? (
+                    <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] text-indigo-700">
+                      大阶段：{selectedMainStages.length} 项
+                    </span>
+                  ) : null}
+                  {createdTimeFilter !== 'all' ? (
+                    <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] text-indigo-700">已筛选创建时间</span>
+                  ) : null}
+                  {keyTimeFilter !== 'all' ? (
+                    <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] text-indigo-700">已筛选关键时间</span>
+                  ) : null}
+                  {selectedResumeVersions.length > 0 ? (
+                    <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] text-indigo-700">
+                      简历：{selectedResumeVersions.length} 项
+                    </span>
+                  ) : null}
+                  {activeListFilterCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={clearListFilters}
+                      className="text-[11px] font-medium text-slate-500 hover:text-indigo-700"
+                    >
+                      清空
+                    </button>
+                  ) : null}
+                </div>
+
+                <span className="whitespace-nowrap text-[11px] text-slate-500">
+                  {activeListFilterCount > 0
+                    ? `筛选出 ${listApplications.length} 条 / 共 ${filteredApplications.length} 条`
+                    : `共 ${listApplications.length} 条`}
+                </span>
+              </div>
               <div
                 ref={listScrollRef}
                 onPointerDown={handleListPointerDown}
@@ -1065,32 +1532,60 @@ function App() {
                 <table className="min-w-[1400px] divide-y divide-slate-200 text-left">
                   <thead className="bg-slate-50/80">
                     <tr className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                      {[
-                        '公司名称',
-                        '岗位名称',
-                        '招聘链接',
-                        '当前大阶段',
-                        '当前具体节点',
-                        '当前关键时间',
-                        '使用简历版本',
-                        '风险提醒',
-                        '流程进度',
-                        '最近更新时间',
-                        '操作',
-                      ].map((title) => (
+                      {listTableColumns.map(({ title, sortColumn }) => {
+                        const sortDirection = sortColumn ? getListSortDirection(sortColumn) : null
+                        return (
                         <th
                           key={title}
+                          aria-sort={
+                            sortDirection === 'asc'
+                              ? 'ascending'
+                              : sortDirection === 'desc'
+                                ? 'descending'
+                                : undefined
+                          }
                           className={`px-4 py-3 font-medium ${
                             title === '操作' ? 'min-w-[96px] whitespace-nowrap' : ''
                           }`}
                         >
-                          {title}
+                          {sortColumn ? (
+                            <button
+                              type="button"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={() => cycleListSort(sortColumn)}
+                              title={
+                                sortDirection === null
+                                  ? `点击按${title}排序`
+                                  : `当前为${sortDirection === 'asc' ? '升序' : '降序'}，再次点击切换排序方向`
+                              }
+                              className={`group inline-flex items-center gap-1.5 whitespace-nowrap rounded px-1 py-0.5 transition ${
+                                sortDirection
+                                  ? 'bg-indigo-50 text-indigo-700'
+                                  : 'hover:bg-slate-100 hover:text-slate-700'
+                              }`}
+                            >
+                              {title}
+                              <span
+                                className={`text-[12px] leading-none ${
+                                  sortDirection
+                                    ? 'font-semibold text-indigo-600'
+                                    : 'text-slate-300 group-hover:text-slate-500'
+                                }`}
+                                aria-hidden="true"
+                              >
+                                {sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : '↕'}
+                              </span>
+                            </button>
+                          ) : (
+                            title
+                          )}
                         </th>
-                      ))}
+                        )
+                      })}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {filteredApplications.map((application) => (
+                    {listApplications.map((application) => (
                       <tr
                         key={application.id}
                         className="cursor-pointer align-top transition hover:bg-slate-50/60"
@@ -1171,6 +1666,20 @@ function App() {
                         </td>
                       </tr>
                     ))}
+                    {listApplications.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} className="px-6 py-16 text-center">
+                          <div className="text-sm font-medium text-slate-600">没有符合条件的申请</div>
+                          <button
+                            type="button"
+                            onClick={clearListFilters}
+                            className="mt-2 text-[12px] font-medium text-indigo-600 hover:text-indigo-800"
+                          >
+                            清空筛选条件
+                          </button>
+                        </td>
+                      </tr>
+                    ) : null}
                   </tbody>
                 </table>
               </div>
@@ -1422,6 +1931,7 @@ function ApplicationCard({
 
 function ProgressMiniAxis({ currentStage }: { currentStage: ApplicationStage }) {
   const currentIndex = getProgressStepIndex(currentStage)
+  const isTerminated = currentStage === '已淘汰' || currentStage === '已放弃'
 
   return (
     <div className="w-[240px]">
@@ -1435,9 +1945,13 @@ function ProgressMiniAxis({ currentStage }: { currentStage: ApplicationStage }) 
                 title={step}
                 className={`shrink-0 rounded-full transition ${
                   isCurrent
-                    ? 'h-2.5 w-2.5 bg-indigo-600 ring-[3px] ring-indigo-600/20'
+                    ? isTerminated
+                      ? 'h-2.5 w-2.5 bg-slate-500 ring-[3px] ring-slate-400/20'
+                      : 'h-2.5 w-2.5 bg-indigo-600 ring-[3px] ring-indigo-600/20'
                     : active
-                      ? 'h-2 w-2 bg-indigo-500'
+                      ? isTerminated
+                        ? 'h-2 w-2 bg-slate-400'
+                        : 'h-2 w-2 bg-indigo-500'
                       : 'h-2 w-2 bg-slate-200'
                 }`}
               />
@@ -1446,8 +1960,12 @@ function ProgressMiniAxis({ currentStage }: { currentStage: ApplicationStage }) 
                   className={`h-[2px] flex-1 rounded-full ${
                     active
                       ? index < currentIndex
-                        ? 'bg-indigo-500'
-                        : 'bg-gradient-to-r from-indigo-500 to-slate-200'
+                        ? isTerminated
+                          ? 'bg-slate-400'
+                          : 'bg-indigo-500'
+                        : isTerminated
+                          ? 'bg-gradient-to-r from-slate-400 to-slate-200'
+                          : 'bg-gradient-to-r from-indigo-500 to-slate-200'
                       : 'bg-slate-200'
                   }`}
                 />
@@ -1458,7 +1976,9 @@ function ProgressMiniAxis({ currentStage }: { currentStage: ApplicationStage }) 
       </div>
       <div className="tabular mt-1.5 flex items-center gap-1 text-[11px] text-slate-500">
         <span className="text-slate-400">当前</span>
-        <span className="font-medium text-indigo-600">{currentStage}</span>
+        <span className={`font-medium ${isTerminated ? 'text-slate-600' : 'text-indigo-600'}`}>
+          {currentStage}
+        </span>
       </div>
     </div>
   )
