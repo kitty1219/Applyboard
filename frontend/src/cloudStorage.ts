@@ -66,6 +66,29 @@ export async function loadCloudData(userId: string): Promise<CloudData> {
   }
 }
 
+export async function deleteCloudResume(
+  userId: string,
+  resume: ResumeProfile,
+): Promise<{ storageDeleted: boolean }> {
+  const { error } = await supabase
+    .from('resumes')
+    .delete()
+    .eq('user_id', userId)
+    .eq('id', resume.id)
+
+  throwIfError(error)
+
+  if (!resume.storagePath) {
+    return { storageDeleted: true }
+  }
+
+  const { error: storageError } = await supabase.storage
+    .from('resumes')
+    .remove([resume.storagePath])
+
+  return { storageDeleted: !storageError }
+}
+
 function dataUrlToBlob(dataUrl: string): Blob {
   const separatorIndex = dataUrl.indexOf(',')
   if (separatorIndex === -1) {

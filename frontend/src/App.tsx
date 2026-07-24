@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RealtimeChannel, Session } from '@supabase/supabase-js'
 import { loadApplicationsFromStorage, saveApplicationsToStorage } from './applicationStorage'
-import { loadCloudData, syncCloudData, type CloudData } from './cloudStorage'
+import {
+  deleteCloudResume,
+  loadCloudData,
+  syncCloudData,
+  type CloudData,
+} from './cloudStorage'
 import { mockApplications, mockResumes } from './mockData'
 import ResourceLibraryPanel from './ResourceLibraryPanel'
 import {
@@ -1325,13 +1330,69 @@ function App() {
     }
   }
 
-  function handleDeleteResume(resumeId: string) {
-    const confirmed = window.confirm('确定删除这份简历吗？已关联到申请里的简历名称不会被清空。')
+  async function handleDeleteResume(resumeId: string) {
+    const resumeToDelete = resumes.find((resume) => resume.id === resumeId)
+    if (!resumeToDelete) {
+      return
+    }
+
+    const hasSameNameRemaining = resumes.some(
+      (resume) =>
+        resume.id !== resumeId &&
+        resume.name.trim() === resumeToDelete.name.trim(),
+    )
+    const confirmed = window.confirm(
+      hasSameNameRemaining
+        ? '确定删除这份简历吗？还有一份同名简历，因此申请条目中的简历名称会保留。'
+        : '确定删除这份简历吗？使用它的申请条目将改为“未指定”。',
+    )
     if (!confirmed) {
       return
     }
-    setResumes((current) => current.filter((resume) => resume.id !== resumeId))
-    setSelectedResume((current) => (current?.id === resumeId ? null : current))
+
+    if (sessionUserId && !isCloudReady) {
+      window.alert('云端数据仍在加载，请稍后再删除。')
+      return
+    }
+
+    try {
+      setSyncStatus('syncing')
+      let result = { storageDeleted: true }
+      if (sessionUserId) {
+        if (syncTimerRef.current !== null) {
+          window.clearTimeout(syncTimerRef.current)
+          syncTimerRef.current = null
+        }
+        await syncQueueRef.current
+        result = await deleteCloudResume(sessionUserId, resumeToDelete)
+      }
+      const now = new Date().toISOString()
+
+      setResumes((current) => current.filter((resume) => resume.id !== resumeId))
+      setSelectedResume((current) => (current?.id === resumeId ? null : current))
+
+      if (!hasSameNameRemaining) {
+        setApplications((current) =>
+          current.map((application) =>
+            application.resumeVersion?.trim() === resumeToDelete.name.trim()
+              ? { ...application, resumeVersion: '', updatedAt: now }
+              : application,
+          ),
+        )
+        setSelectedResumeVersions((current) =>
+          current.filter((version) => version.trim() !== resumeToDelete.name.trim()),
+        )
+      }
+
+      setSyncStatus(sessionUserId ? 'saved' : 'idle')
+      if (!result.storageDeleted) {
+        window.alert('简历记录已删除，但云端文件清理失败。请稍后重试或联系我处理。')
+      }
+    } catch (error) {
+      setSyncStatus('error')
+      const message = error instanceof Error ? error.message : '未知错误'
+      window.alert(`删除失败，简历仍然保留。${message}`)
+    }
   }
 
   return (
