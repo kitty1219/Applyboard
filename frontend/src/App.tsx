@@ -2751,13 +2751,13 @@ function AuthModal({
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-[15px] font-semibold tracking-tight text-slate-900">
-              {isPasswordRecovery ? '设置新密码' : session ? '账号与云同步' : mode === 'sign-in' ? '登录 ApplyBoard' : '注册 ApplyBoard'}
+              {isPasswordRecovery ? '设置新密码' : session ? '账号' : mode === 'sign-in' ? '登录 ApplyBoard' : '注册 ApplyBoard'}
             </div>
-            <p className="mt-1 text-[12px] leading-5 text-slate-500">
-              {session
-                ? '你的申请、简历和网址正在此账号下同步。'
-                : '使用同一账号登录电脑和手机，即可查看相同数据。'}
-            </p>
+            {!session ? (
+              <p className="mt-1 text-[12px] leading-5 text-slate-500">
+                使用同一账号登录电脑和手机，即可查看相同数据。
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -2781,11 +2781,6 @@ function AuthModal({
                 {session.user.email}
               </div>
             </div>
-            {message ? (
-              <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-[12px] text-indigo-700">
-                {message}
-              </div>
-            ) : null}
             {error ? (
               <div className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-[12px] text-rose-700">
                 {error}
