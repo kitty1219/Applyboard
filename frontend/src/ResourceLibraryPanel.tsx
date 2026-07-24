@@ -73,15 +73,18 @@ function getUrlLabel(value: string) {
 export default function ResourceLibraryPanel({
   resources,
   onResourcesChange,
+  onDeleteResource,
 }: {
   resources: JobResource[]
   onResourcesChange: React.Dispatch<React.SetStateAction<JobResource[]>>
+  onDeleteResource: (resourceId: string) => Promise<boolean>
 }) {
   const [activeFilter, setActiveFilter] = useState<ResourceFilter>('全部')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingResourceId, setEditingResourceId] = useState<string | null>(null)
   const [formState, setFormState] = useState<ResourceFormState>(initialFormState)
   const [formError, setFormError] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const filteredResources = useMemo(
     () =>
@@ -161,7 +164,7 @@ export default function ResourceLibraryPanel({
     closeModal()
   }
 
-  function deleteResource() {
+  async function deleteResource() {
     if (!editingResourceId) {
       return
     }
@@ -169,8 +172,12 @@ export default function ResourceLibraryPanel({
       return
     }
 
-    onResourcesChange((current) => current.filter((resource) => resource.id !== editingResourceId))
-    closeModal()
+    setIsDeleting(true)
+    const deleted = await onDeleteResource(editingResourceId)
+    setIsDeleting(false)
+    if (deleted) {
+      closeModal()
+    }
   }
 
   return (
@@ -374,10 +381,11 @@ export default function ResourceLibraryPanel({
               {editingResourceId ? (
                 <button
                   type="button"
-                  onClick={deleteResource}
-                  className="text-[12px] font-medium text-rose-600 hover:text-rose-700"
+                  disabled={isDeleting}
+                  onClick={() => void deleteResource()}
+                  className="text-[12px] font-medium text-rose-600 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  删除网址
+                  {isDeleting ? '删除中…' : '删除网址'}
                 </button>
               ) : null}
             </div>

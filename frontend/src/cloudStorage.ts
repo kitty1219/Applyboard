@@ -3,7 +3,6 @@ import type { JobResource } from './resourceStorage'
 import { supabase } from './supabase'
 
 type CloudTable = 'applications' | 'resumes' | 'job_resources'
-const CLOUD_DELETIONS_ENABLED = false
 
 type CloudRow<T> = {
   id: string
@@ -64,6 +63,34 @@ export async function loadCloudData(userId: string): Promise<CloudData> {
     resumes: await addSignedResumeUrls(resumes),
     resources,
   }
+}
+
+async function deleteCloudRow(
+  table: CloudTable,
+  userId: string,
+  itemId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from(table)
+    .delete()
+    .eq('user_id', userId)
+    .eq('id', itemId)
+
+  throwIfError(error)
+}
+
+export async function deleteCloudApplication(
+  userId: string,
+  applicationId: string,
+): Promise<void> {
+  await deleteCloudRow('applications', userId, applicationId)
+}
+
+export async function deleteCloudResource(
+  userId: string,
+  resourceId: string,
+): Promise<void> {
+  await deleteCloudRow('job_resources', userId, resourceId)
 }
 
 export async function deleteCloudResume(
@@ -155,20 +182,6 @@ async function syncRows<T extends { id: string }>(
   previousItems: T[],
   preparedChangedItems?: T[],
 ): Promise<void> {
-  const itemIds = new Set(items.map((item) => item.id))
-  const deletedIds = previousItems
-    .map((item) => item.id)
-    .filter((id) => !itemIds.has(id))
-
-  if (CLOUD_DELETIONS_ENABLED && deletedIds.length > 0) {
-    const { error } = await supabase
-      .from(table)
-      .delete()
-      .eq('user_id', userId)
-      .in('id', deletedIds)
-    throwIfError(error)
-  }
-
   const changedItems = preparedChangedItems ?? getChangedItems(items, previousItems)
   if (changedItems.length > 0) {
     const now = new Date().toISOString()
@@ -190,19 +203,6 @@ async function syncResumes(
   resumes: ResumeProfile[],
   previousResumes: ResumeProfile[],
 ): Promise<void> {
-  const resumeIds = new Set(resumes.map((resume) => resume.id))
-  const deletedResumes = previousResumes.filter(
-    (resume) => !resumeIds.has(resume.id),
-  )
-  const deletedPaths = deletedResumes
-    .map((resume) => resume.storagePath)
-    .filter((path): path is string => Boolean(path))
-
-  if (CLOUD_DELETIONS_ENABLED && deletedPaths.length > 0) {
-    const { error } = await supabase.storage.from('resumes').remove(deletedPaths)
-    throwIfError(error)
-  }
-
   const changedResumes = getChangedItems(resumes, previousResumes)
   const preparedChangedResumes = await Promise.all(
     changedResumes.map((resume) => prepareResume(userId, resume)),

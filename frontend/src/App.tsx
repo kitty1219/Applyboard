@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RealtimeChannel, Session } from '@supabase/supabase-js'
 import { loadApplicationsFromStorage, saveApplicationsToStorage } from './applicationStorage'
 import {
+  deleteCloudApplication,
+  deleteCloudResource,
   deleteCloudResume,
   loadCloudData,
   syncCloudData,
@@ -533,48 +535,10 @@ function App() {
           return
         }
 
-        const localData = initialLocalData
-        const cloudIsEmpty =
-          cloudData.applications.length === 0 &&
-          cloudData.resumes.length === 0 &&
-          cloudData.resources.length === 0
-        const localCount =
-          (localData.applications?.length ?? 0) +
-          (localData.resumes?.length ?? 0) +
-          (localData.resources?.length ?? 0)
-
-        if (cloudIsEmpty && localCount > 0) {
-          const shouldImport = window.confirm(
-            `检测到当前浏览器有 ${localData.applications?.length ?? 0} 条申请、${localData.resumes?.length ?? 0} 份简历和 ${localData.resources?.length ?? 0} 条网址。是否导入当前登录账号？`,
-          )
-
-          if (shouldImport) {
-            const migrationData = {
-              applications: localData.applications ?? [],
-              resumes: localData.resumes ?? [],
-              resources: localData.resources ?? [],
-            }
-            await syncCloudData(userId, migrationData, cloudData)
-            if (!active) {
-              return
-            }
-            lastSyncedDataRef.current = migrationData
-            setApplications(migrationData.applications)
-            setResumes(migrationData.resumes)
-            setResources(migrationData.resources)
-            setAuthMessage('本机数据已成功导入云端。')
-          } else {
-            lastSyncedDataRef.current = cloudData
-            setApplications(cloudData.applications)
-            setResumes(cloudData.resumes)
-            setResources(cloudData.resources)
-          }
-        } else {
-          lastSyncedDataRef.current = cloudData
-          setApplications(cloudData.applications)
-          setResumes(cloudData.resumes)
-          setResources(cloudData.resources)
-        }
+        lastSyncedDataRef.current = cloudData
+        setApplications(cloudData.applications)
+        setResumes(cloudData.resumes)
+        setResources(cloudData.resources)
 
         setSyncStatus('saved')
         setIsCloudReady(true)
@@ -594,7 +558,7 @@ function App() {
     return () => {
       active = false
     }
-  }, [initialLocalData, sessionUserId])
+  }, [sessionUserId])
 
   useEffect(() => {
     if (!session || !isCloudReady) {
@@ -1154,18 +1118,84 @@ function App() {
     }
   }
 
-  function handleDeleteApplication(applicationId: string) {
+  async function flushPendingCloudChanges() {
+    if (!sessionUserId) {
+      return
+    }
+    if (!isCloudReady) {
+      throw new Error('云端数据仍在加载，请稍后再试。')
+    }
+
+    if (syncTimerRef.current !== null) {
+      window.clearTimeout(syncTimerRef.current)
+      syncTimerRef.current = null
+    }
+    await syncQueueRef.current
+
+    const snapshot = { applications, resumes, resources }
+    const previousData = lastSyncedDataRef.current ?? {
+      applications: [],
+      resumes: [],
+      resources: [],
+    }
+    await syncCloudData(sessionUserId, snapshot, previousData)
+    lastSyncedDataRef.current = snapshot
+    hasPendingLocalChangesRef.current = false
+  }
+
+  async function handleDeleteApplication(applicationId: string) {
     const confirmed = window.confirm('确定删除这条申请吗？删除后无法恢复。')
     if (!confirmed) {
       return
     }
-    setApplications((current) => current.filter((application) => application.id !== applicationId))
-    setSelectedApplicationId((current) => (current === applicationId ? null : current))
-    setStatusEditor((current) =>
-      current.applicationId === applicationId
-        ? { applicationId: null, stage: '待投递', stageMeta: {} }
-        : current,
-    )
+
+    try {
+      setSyncStatus('syncing')
+      if (sessionUserId) {
+        await flushPendingCloudChanges()
+        await deleteCloudApplication(sessionUserId, applicationId)
+      }
+      setApplications((current) => current.filter((application) => application.id !== applicationId))
+      setSelectedApplicationId((current) => (current === applicationId ? null : current))
+      setStatusEditor((current) =>
+        current.applicationId === applicationId
+          ? { applicationId: null, stage: '待投递', stageMeta: {} }
+          : current,
+      )
+      void realtimeChannelRef.current?.send({
+        type: 'broadcast',
+        event: 'refresh',
+        payload: {},
+      })
+      setSyncStatus(sessionUserId ? 'saved' : 'idle')
+    } catch (error) {
+      setSyncStatus('error')
+      const message = error instanceof Error ? error.message : '未知错误'
+      window.alert(`删除失败，申请仍然保留。${message}`)
+    }
+  }
+
+  async function handleDeleteResource(resourceId: string): Promise<boolean> {
+    try {
+      setSyncStatus('syncing')
+      if (sessionUserId) {
+        await flushPendingCloudChanges()
+        await deleteCloudResource(sessionUserId, resourceId)
+      }
+      setResources((current) => current.filter((resource) => resource.id !== resourceId))
+      void realtimeChannelRef.current?.send({
+        type: 'broadcast',
+        event: 'refresh',
+        payload: {},
+      })
+      setSyncStatus(sessionUserId ? 'saved' : 'idle')
+      return true
+    } catch (error) {
+      setSyncStatus('error')
+      const message = error instanceof Error ? error.message : '未知错误'
+      window.alert(`删除失败，网址仍然保留。${message}`)
+      return false
+    }
   }
 
   function handleRestoreDemoData() {
@@ -1359,11 +1389,7 @@ function App() {
       setSyncStatus('syncing')
       let result = { storageDeleted: true }
       if (sessionUserId) {
-        if (syncTimerRef.current !== null) {
-          window.clearTimeout(syncTimerRef.current)
-          syncTimerRef.current = null
-        }
-        await syncQueueRef.current
+        await flushPendingCloudChanges()
         result = await deleteCloudResume(sessionUserId, resumeToDelete)
       }
       const now = new Date().toISOString()
@@ -1384,6 +1410,11 @@ function App() {
         )
       }
 
+      void realtimeChannelRef.current?.send({
+        type: 'broadcast',
+        event: 'refresh',
+        payload: {},
+      })
       setSyncStatus(sessionUserId ? 'saved' : 'idle')
       if (!result.storageDeleted) {
         window.alert('简历记录已删除，但云端文件清理失败。请稍后重试或联系我处理。')
@@ -1547,7 +1578,11 @@ function App() {
             </div>
           </PanelCard>
 
-          <ResourceLibraryPanel resources={resources} onResourcesChange={setResources} />
+          <ResourceLibraryPanel
+            resources={resources}
+            onResourcesChange={setResources}
+            onDeleteResource={handleDeleteResource}
+          />
 
           <PanelCard
             title="简历管理"
@@ -3031,7 +3066,7 @@ function AuthModal({
                 onClick={() => void onSignOut()}
                 className="rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2 text-[13px] font-medium text-rose-700 disabled:opacity-50"
               >
-                退出登录
+                退出当前设备
               </button>
             </div>
           </div>
