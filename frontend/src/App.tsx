@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { loadApplicationsFromStorage, saveApplicationsToStorage } from './applicationStorage'
-import { mockApplications, mockEmails, mockResumes } from './mockData'
+import { mockApplications, mockResumes } from './mockData'
+import ResourceLibraryPanel from './ResourceLibraryPanel'
 import { loadResumesFromStorage, saveResumesToStorage } from './resumeStorage'
 import type { Application, ApplicationStage, MainStage, ResumeProfile, StageMeta, ViewMode } from './types'
 import { MAIN_STAGE_OPTIONS, PROGRESS_AXIS_STEPS, STAGE_OPTIONS } from './types'
 import {
-  classifyEmail,
   formatDateTime,
   getCurrentKeyTime,
   getCurrentStageLabel,
@@ -241,13 +241,6 @@ const IconSpark = ({ className = '' }: { className?: string }) => (
   </svg>
 )
 
-const IconBell = ({ className = '' }: { className?: string }) => (
-  <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9Z" />
-    <path d="M10 21a2 2 0 0 0 4 0" />
-  </svg>
-)
-
 const IconFile = ({ className = '' }: { className?: string }) => (
   <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -417,7 +410,6 @@ function App() {
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
-  const [isEmailUploadModalOpen, setIsEmailUploadModalOpen] = useState(false)
   const [isResumeUploadModalOpen, setIsResumeUploadModalOpen] = useState(false)
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false)
   const [selectedResume, setSelectedResume] = useState<ResumeProfile | null>(null)
@@ -652,17 +644,6 @@ function App() {
   const priorityItems = useMemo(
     () => getPriorityItems(filteredApplications),
     [filteredApplications],
-  )
-  const sortedEmails = useMemo(
-    () =>
-      [...mockEmails].sort((a, b) => {
-        if (a.isRead !== b.isRead) {
-          return a.isRead ? 1 : -1
-        }
-
-        return new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
-      }),
-    [],
   )
   const topPriorityItem = priorityItems[0] ?? null
 
@@ -1134,76 +1115,7 @@ function App() {
             </div>
           </PanelCard>
 
-          <PanelCard
-            title="邮件提醒"
-            description="基于邮箱邮件和关键词规则识别疑似通知"
-            icon={<IconBell />}
-            iconTone="amber"
-            extra={
-              <button
-                type="button"
-                onClick={() => setIsEmailUploadModalOpen(true)}
-                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-micro font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                <IconUpload className="text-slate-500" />
-                上传邮箱
-              </button>
-            }
-          >
-            <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto pr-1">
-              {sortedEmails.map((email) => {
-                const tag = classifyEmail(email)
-                return (
-                  <div
-                    key={email.id}
-                    className={`relative shrink-0 overflow-hidden rounded-lg border p-3 transition hover:-translate-y-0.5 ${
-                      email.isRead
-                        ? 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-[0_2px_6px_rgba(15,23,42,0.05)]'
-                        : 'border-amber-200 bg-gradient-to-br from-amber-50/70 to-white hover:shadow-[0_4px_12px_-4px_rgba(245,158,11,0.2)]'
-                    }`}
-                  >
-                    {!email.isRead ? (
-                      <span className="absolute left-0 top-0 h-full w-0.5 bg-gradient-to-b from-amber-500 to-amber-300" />
-                    ) : null}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          {!email.isRead ? (
-                            <span className="relative flex h-2 w-2 shrink-0">
-                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-70" />
-                              <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
-                            </span>
-                          ) : null}
-                          <div className="text-body-md font-semibold text-slate-900">{email.companyHint}</div>
-                          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                            email.isRead ? 'bg-slate-100 text-slate-500' : 'bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200/70'
-                          }`}>
-                            {email.isRead ? '已查看' : '未查看'}
-                          </span>
-                        </div>
-                        <div className="mt-1 text-caption text-slate-600">
-                          疑似 <span className="font-medium text-slate-700">{email.companyHint}</span>
-                          {tag.label}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsEmailUploadModalOpen(true)}
-                        className="shrink-0 whitespace-nowrap rounded border border-slate-200 bg-white px-1 py-0.5 text-[9px] font-medium leading-tight text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50/40 hover:text-indigo-700"
-                      >
-                        查看邮件
-                      </button>
-                    </div>
-                    <div className="tabular mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
-                      <span className="truncate">{email.from}</span>
-                      <span>·</span>
-                      <span>{formatDateTime(email.receivedAt)}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </PanelCard>
+          <ResourceLibraryPanel />
 
           <PanelCard
             title="简历管理"
@@ -1735,15 +1647,6 @@ function App() {
       <ImportPlaceholderModal
         open={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-      />
-
-      <FeaturePlaceholderModal
-        open={isEmailUploadModalOpen}
-        title="上传邮箱"
-        description="当前版本仅保留邮箱接入入口，后续可支持绑定 163 邮箱、QQ 邮箱和企业邮箱，并同步邮件抓取。"
-        note="规划方向：当前版本使用关键词与规则匹配识别邮件类型，后续可升级为 AI 识别，自动判断面试、笔试、面试结果和 Offer 类邮件。"
-        confirmText="稍后再说"
-        onClose={() => setIsEmailUploadModalOpen(false)}
       />
 
       <ResumeUploadModal
