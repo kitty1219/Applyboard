@@ -85,7 +85,8 @@ function dataUrlToBlob(dataUrl: string): Blob {
 }
 
 function safeFileName(fileName: string): string {
-  return fileName.replace(/[^\p{L}\p{N}._-]+/gu, '-').slice(-120) || 'resume-file'
+  const extension = fileName.match(/\.([a-zA-Z0-9]{1,10})$/)?.[1]?.toLowerCase()
+  return extension ? `document.${extension}` : 'document.bin'
 }
 
 async function prepareResume(userId: string, resume: ResumeProfile): Promise<ResumeProfile> {
