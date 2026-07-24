@@ -2753,11 +2753,6 @@ function AuthModal({
             <div className="text-[15px] font-semibold tracking-tight text-slate-900">
               {isPasswordRecovery ? '设置新密码' : session ? '账号' : mode === 'sign-in' ? '登录 ApplyBoard' : '注册 ApplyBoard'}
             </div>
-            {!session ? (
-              <p className="mt-1 text-[12px] leading-5 text-slate-500">
-                使用同一账号登录电脑和手机，即可查看相同数据。
-              </p>
-            ) : null}
           </div>
           <button
             type="button"
