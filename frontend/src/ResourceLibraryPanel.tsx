@@ -1,9 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
-  defaultJobResources,
-  loadJobResourcesFromStorage,
   RESOURCE_CATEGORIES,
-  saveJobResourcesToStorage,
   type JobResource,
   type ResourceCategory,
 } from './resourceStorage'
@@ -73,19 +70,18 @@ function getUrlLabel(value: string) {
   }
 }
 
-export default function ResourceLibraryPanel() {
-  const [resources, setResources] = useState<JobResource[]>(
-    () => loadJobResourcesFromStorage() ?? defaultJobResources,
-  )
+export default function ResourceLibraryPanel({
+  resources,
+  onResourcesChange,
+}: {
+  resources: JobResource[]
+  onResourcesChange: React.Dispatch<React.SetStateAction<JobResource[]>>
+}) {
   const [activeFilter, setActiveFilter] = useState<ResourceFilter>('全部')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingResourceId, setEditingResourceId] = useState<string | null>(null)
   const [formState, setFormState] = useState<ResourceFormState>(initialFormState)
   const [formError, setFormError] = useState('')
-
-  useEffect(() => {
-    saveJobResourcesToStorage(resources)
-  }, [resources])
 
   const filteredResources = useMemo(
     () =>
@@ -133,7 +129,7 @@ export default function ResourceLibraryPanel() {
 
     const now = new Date().toISOString()
     if (editingResourceId) {
-      setResources((current) =>
+      onResourcesChange((current) =>
         current.map((resource) =>
           resource.id === editingResourceId
             ? {
@@ -148,7 +144,7 @@ export default function ResourceLibraryPanel() {
         ),
       )
     } else {
-      setResources((current) => [
+      onResourcesChange((current) => [
         {
           id: `resource-${crypto.randomUUID()}`,
           name,
@@ -173,7 +169,7 @@ export default function ResourceLibraryPanel() {
       return
     }
 
-    setResources((current) => current.filter((resource) => resource.id !== editingResourceId))
+    onResourcesChange((current) => current.filter((resource) => resource.id !== editingResourceId))
     closeModal()
   }
 

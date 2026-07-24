@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import { loadApplicationsFromStorage, saveApplicationsToStorage } from './applicationStorage'
+import { loadCloudData, syncCloudData } from './cloudStorage'
 import { mockApplications, mockResumes } from './mockData'
 import ResourceLibraryPanel from './ResourceLibraryPanel'
+import {
+  defaultJobResources,
+  loadJobResourcesFromStorage,
+  saveJobResourcesToStorage,
+} from './resourceStorage'
 import { loadResumesFromStorage, saveResumesToStorage } from './resumeStorage'
+import { isSupabaseConfigured, supabase } from './supabase'
 import type { Application, ApplicationStage, MainStage, ResumeProfile, StageMeta, ViewMode } from './types'
 import { MAIN_STAGE_OPTIONS, PROGRESS_AXIS_STEPS, STAGE_OPTIONS } from './types'
 import {
@@ -372,6 +380,11 @@ function formatFileSize(size?: number): string {
 }
 
 function App() {
+  const [initialLocalData] = useState(() => ({
+    applications: loadApplicationsFromStorage(),
+    resumes: loadResumesFromStorage(),
+    resources: loadJobResourcesFromStorage(),
+  }))
   const [viewMode, setViewMode] = useState<ViewMode>('看板视图')
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedMainStages, setSelectedMainStages] = useState<MainStage[]>([])
@@ -398,19 +411,36 @@ function App() {
   })
   const [isListDragging, setIsListDragging] = useState(false)
   const [applications, setApplications] = useState<Application[]>(
-    () => loadApplicationsFromStorage() ?? mockApplications,
+    () => initialLocalData.applications ?? mockApplications,
   )
 
   useEffect(() => {
     saveApplicationsToStorage(applications)
   }, [applications])
   const [resumes, setResumes] = useState<ResumeProfile[]>(
-    () => loadResumesFromStorage() ?? mockResumes,
+    () => initialLocalData.resumes ?? mockResumes,
   )
 
   useEffect(() => {
     saveResumesToStorage(resumes)
   }, [resumes])
+  const [resources, setResources] = useState(
+    () => initialLocalData.resources ?? defaultJobResources,
+  )
+
+  useEffect(() => {
+    saveJobResourcesToStorage(resources)
+  }, [resources])
+  const [session, setSession] = useState<Session | null>(null)
+  const [isAuthLoading, setIsAuthLoading] = useState(true)
+  const [isAuthBusy, setIsAuthBusy] = useState(false)
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
+  const [authError, setAuthError] = useState('')
+  const [authMessage, setAuthMessage] = useState('')
+  const [isCloudReady, setIsCloudReady] = useState(false)
+  const [isCloudLoading, setIsCloudLoading] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'saved' | 'error'>('idle')
+  const syncTimerRef = useRef<number | null>(null)
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
@@ -429,6 +459,219 @@ function App() {
     stage: '待投递',
     stageMeta: {},
   })
+
+  useEffect(() => {
+    let active = true
+
+    void supabase.auth.getSession().then(({ data }) => {
+      if (active) {
+        setSession(data.session)
+        setIsAuthLoading(false)
+      }
+    })
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setSession(nextSession)
+      setIsAuthLoading(false)
+      if (!nextSession) {
+        setIsCloudReady(false)
+        setIsCloudLoading(false)
+        setSyncStatus('idle')
+      }
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true)
+        setIsLoginModalOpen(true)
+      }
+    })
+
+    return () => {
+      active = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!session) {
+      return
+    }
+
+    let active = true
+    const userId = session.user.id
+
+    async function initializeCloudData() {
+      setIsCloudLoading(true)
+      setIsCloudReady(false)
+      setSyncStatus('syncing')
+
+      try {
+        const cloudData = await loadCloudData(userId)
+        if (!active) {
+          return
+        }
+
+        const cloudIsEmpty =
+          cloudData.applications.length === 0 &&
+          cloudData.resumes.length === 0 &&
+          cloudData.resources.length === 0
+        const localData = initialLocalData
+        const localCount =
+          (localData.applications?.length ?? 0) +
+          (localData.resumes?.length ?? 0) +
+          (localData.resources?.length ?? 0)
+
+        if (cloudIsEmpty && localCount > 0) {
+          const shouldImport = window.confirm(
+            `检测到当前浏览器有 ${localData.applications?.length ?? 0} 条申请、${localData.resumes?.length ?? 0} 份简历和 ${localData.resources?.length ?? 0} 条网址。是否导入当前登录账号？`,
+          )
+
+          if (shouldImport) {
+            const migrationData = {
+              applications: localData.applications ?? [],
+              resumes: localData.resumes ?? [],
+              resources: localData.resources ?? [],
+            }
+            await syncCloudData(userId, migrationData)
+            if (!active) {
+              return
+            }
+            setApplications(migrationData.applications)
+            setResumes(migrationData.resumes)
+            setResources(migrationData.resources)
+            setAuthMessage('本机数据已成功导入云端。')
+          } else {
+            setApplications([])
+            setResumes([])
+            setResources([])
+          }
+        } else {
+          setApplications(cloudData.applications)
+          setResumes(cloudData.resumes)
+          setResources(cloudData.resources)
+        }
+
+        setSyncStatus('saved')
+        setIsCloudReady(true)
+      } catch (error) {
+        if (active) {
+          setSyncStatus('error')
+          setAuthError(error instanceof Error ? error.message : '云端数据读取失败')
+        }
+      } finally {
+        if (active) {
+          setIsCloudLoading(false)
+        }
+      }
+    }
+
+    void initializeCloudData()
+    return () => {
+      active = false
+    }
+  }, [initialLocalData, session])
+
+  useEffect(() => {
+    if (!session || !isCloudReady) {
+      return
+    }
+
+    if (syncTimerRef.current !== null) {
+      window.clearTimeout(syncTimerRef.current)
+    }
+
+    syncTimerRef.current = window.setTimeout(() => {
+      setSyncStatus('syncing')
+      void syncCloudData(session.user.id, { applications, resumes, resources })
+        .then(() => setSyncStatus('saved'))
+        .catch((error: unknown) => {
+          setSyncStatus('error')
+          setAuthError(error instanceof Error ? error.message : '云端同步失败')
+        })
+    }, 700)
+
+    return () => {
+      if (syncTimerRef.current !== null) {
+        window.clearTimeout(syncTimerRef.current)
+      }
+    }
+  }, [applications, isCloudReady, resources, resumes, session])
+
+  async function handleSignIn(email: string, password: string) {
+    setIsAuthBusy(true)
+    setAuthError('')
+    setAuthMessage('')
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    setIsAuthBusy(false)
+    if (error) {
+      setAuthError(error.message)
+      return
+    }
+    setAuthMessage('登录成功，正在读取云端数据。')
+  }
+
+  async function handleSignUp(email: string, password: string) {
+    setIsAuthBusy(true)
+    setAuthError('')
+    setAuthMessage('')
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: window.location.origin },
+    })
+    setIsAuthBusy(false)
+    if (error) {
+      setAuthError(error.message)
+      return
+    }
+    setAuthMessage(
+      data.session ? '注册并登录成功。' : '注册成功，请前往邮箱点击验证链接后再登录。',
+    )
+  }
+
+  async function handleResetPassword(email: string) {
+    if (!email) {
+      setAuthError('请先填写邮箱地址。')
+      return
+    }
+    setIsAuthBusy(true)
+    setAuthError('')
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    })
+    setIsAuthBusy(false)
+    if (error) {
+      setAuthError(error.message)
+      return
+    }
+    setAuthMessage('密码重置邮件已发送，请检查邮箱。')
+  }
+
+  async function handleSignOut() {
+    setIsAuthBusy(true)
+    setAuthError('')
+    const { error } = await supabase.auth.signOut()
+    setIsAuthBusy(false)
+    if (error) {
+      setAuthError(error.message)
+      return
+    }
+    setIsLoginModalOpen(false)
+    setAuthMessage('')
+  }
+
+  async function handleUpdatePassword(password: string) {
+    setIsAuthBusy(true)
+    setAuthError('')
+    const { error } = await supabase.auth.updateUser({ password })
+    setIsAuthBusy(false)
+    if (error) {
+      setAuthError(error.message)
+      return
+    }
+    setIsPasswordRecovery(false)
+    setAuthMessage('密码已更新。')
+  }
 
   const filteredApplications = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase()
@@ -1019,7 +1262,15 @@ function App() {
                   className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
                 >
                   <IconUser className="shrink-0 text-slate-500" />
-                  登录
+                  {isAuthLoading
+                    ? '检查登录'
+                    : session
+                      ? syncStatus === 'syncing'
+                        ? '同步中…'
+                        : syncStatus === 'error'
+                          ? '同步失败'
+                          : session.user.email?.split('@')[0] ?? '我的账号'
+                      : '登录'}
                 </button>
                 <button
                   type="button"
@@ -1119,7 +1370,7 @@ function App() {
             </div>
           </PanelCard>
 
-          <ResourceLibraryPanel />
+          <ResourceLibraryPanel resources={resources} onResourcesChange={setResources} />
 
           <PanelCard
             title="简历管理"
@@ -1671,12 +1922,19 @@ function App() {
         }
       />
 
-      <FeaturePlaceholderModal
+      <AuthModal
         open={isLoginModalOpen}
-        title="用户登录"
-        description="当前版本仅保留登录入口展示，不实现真实账号体系与身份校验。"
-        note="规划方向：后续可接入手机号、邮箱验证码或第三方账号登录，并保存个人求职数据。"
-        confirmText="关闭"
+        session={session}
+        isBusy={isAuthBusy || isCloudLoading}
+        isPasswordRecovery={isPasswordRecovery}
+        error={authError}
+        message={authMessage}
+        isConfigured={isSupabaseConfigured}
+        onSignIn={handleSignIn}
+        onSignUp={handleSignUp}
+        onResetPassword={handleResetPassword}
+        onUpdatePassword={handleUpdatePassword}
+        onSignOut={handleSignOut}
         onClose={() => setIsLoginModalOpen(false)}
       />
 
@@ -2106,7 +2364,15 @@ function ApplicationDetailPanel({
   const [detailForm, setDetailForm] = useState<ApplicationDetailFormState | null>(null)
 
   useEffect(() => {
-    setDetailForm(application ? createApplicationDetailForm(application) : null)
+    let active = true
+    queueMicrotask(() => {
+      if (active) {
+        setDetailForm(application ? createApplicationDetailForm(application) : null)
+      }
+    })
+    return () => {
+      active = false
+    }
   }, [application])
 
   function updateDetailField<Key extends keyof ApplicationDetailFormState>(
@@ -2418,21 +2684,53 @@ function ImportPlaceholderModal({
   )
 }
 
-function FeaturePlaceholderModal({
+function AuthModal({
   open,
-  title,
-  description,
-  note,
-  confirmText,
+  session,
+  isBusy,
+  isPasswordRecovery,
+  error,
+  message,
+  isConfigured,
+  onSignIn,
+  onSignUp,
+  onResetPassword,
+  onUpdatePassword,
+  onSignOut,
   onClose,
 }: {
   open: boolean
-  title: string
-  description: string
-  note: string
-  confirmText: string
+  session: Session | null
+  isBusy: boolean
+  isPasswordRecovery: boolean
+  error: string
+  message: string
+  isConfigured: boolean
+  onSignIn: (email: string, password: string) => Promise<void>
+  onSignUp: (email: string, password: string) => Promise<void>
+  onResetPassword: (email: string) => Promise<void>
+  onUpdatePassword: (password: string) => Promise<void>
+  onSignOut: () => Promise<void>
   onClose: () => void
 }) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (isPasswordRecovery) {
+      await onUpdatePassword(password)
+      setPassword('')
+      return
+    }
+    if (mode === 'sign-in') {
+      await onSignIn(email.trim(), password)
+    } else {
+      await onSignUp(email.trim(), password)
+    }
+  }
+
   return (
     <div
       className={`fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px] px-4 transition-opacity duration-200 ${open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}
@@ -2443,7 +2741,16 @@ function FeaturePlaceholderModal({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
-          <div className="text-[15px] font-semibold tracking-tight text-slate-900">{title}</div>
+          <div>
+            <div className="text-[15px] font-semibold tracking-tight text-slate-900">
+              {isPasswordRecovery ? '设置新密码' : session ? '账号与云同步' : mode === 'sign-in' ? '登录 ApplyBoard' : '注册 ApplyBoard'}
+            </div>
+            <p className="mt-1 text-[12px] leading-5 text-slate-500">
+              {session
+                ? '你的申请、简历和网址正在此账号下同步。'
+                : '使用同一账号登录电脑和手机，即可查看相同数据。'}
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -2453,19 +2760,133 @@ function FeaturePlaceholderModal({
             <IconClose />
           </button>
         </div>
-        <p className="mt-2 text-[13px] leading-6 text-slate-600">{description}</p>
-        <div className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3.5 text-[12px] leading-5 text-slate-500">
-          {note}
-        </div>
-        <div className="mt-5 flex justify-end">
+
+        {!isConfigured ? (
+          <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-3 text-[12px] leading-5 text-rose-700">
+            Supabase 环境变量尚未配置，暂时无法登录。
+          </div>
+        ) : session && !isPasswordRecovery ? (
+          <div className="mt-4">
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3.5 py-3">
+              <div className="text-[11px] text-emerald-600">当前账号</div>
+              <div className="mt-0.5 break-all text-[13px] font-medium text-emerald-900">
+                {session.user.email}
+              </div>
+            </div>
+            {message ? (
+              <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-[12px] text-indigo-700">
+                {message}
+              </div>
+            ) : null}
+            {error ? (
+              <div className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-[12px] text-rose-700">
+                {error}
+              </div>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-slate-200 px-3.5 py-2 text-[13px] font-medium text-slate-600"
+              >
+                关闭
+              </button>
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => void onSignOut()}
+                className="rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2 text-[13px] font-medium text-rose-700 disabled:opacity-50"
+              >
+                退出登录
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form className="mt-4" onSubmit={submit}>
+            {!isPasswordRecovery ? (
+              <label className="block">
+                <span className="text-[12px] font-medium text-slate-600">邮箱</span>
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  className="input-base mt-1 w-full"
+                  placeholder="you@example.com"
+                />
+              </label>
+            ) : null}
+            <label className={`block ${isPasswordRecovery ? '' : 'mt-3'}`}>
+              <span className="text-[12px] font-medium text-slate-600">
+                {isPasswordRecovery ? '新密码' : '密码'}
+              </span>
+              <input
+                type="password"
+                required
+                minLength={8}
+                autoComplete={isPasswordRecovery ? 'new-password' : mode === 'sign-up' ? 'new-password' : 'current-password'}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="input-base mt-1 w-full"
+                placeholder="至少 8 位"
+              />
+            </label>
+            {message ? (
+              <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-[12px] leading-5 text-indigo-700">
+                {message}
+              </div>
+            ) : null}
+            {error ? (
+              <div className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-[12px] leading-5 text-rose-700">
+                {error}
+              </div>
+            ) : null}
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
+              {!isPasswordRecovery ? (
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={() => void onResetPassword(email.trim())}
+                  className="text-[12px] text-slate-500 transition hover:text-indigo-600 disabled:opacity-50"
+                >
+                  忘记密码
+                </button>
+              ) : <span />}
+              <button
+                type="submit"
+                disabled={isBusy || !isConfigured}
+                className="btn-primary rounded-lg px-4 py-2 text-[13px] font-medium disabled:opacity-50"
+              >
+                {isBusy ? '请稍候…' : isPasswordRecovery ? '保存新密码' : mode === 'sign-in' ? '登录' : '注册'}
+              </button>
+            </div>
+            {!isPasswordRecovery ? (
+              <div className="mt-4 border-t border-slate-100 pt-4 text-center text-[12px] text-slate-500">
+                {mode === 'sign-in' ? '还没有账号？' : '已有账号？'}
+                <button
+                  type="button"
+                  onClick={() => setMode((current) => current === 'sign-in' ? 'sign-up' : 'sign-in')}
+                  className="ml-1 font-medium text-indigo-600 hover:text-indigo-700"
+                >
+                  {mode === 'sign-in' ? '免费注册' : '返回登录'}
+                </button>
+              </div>
+            ) : null}
+          </form>
+        )}
+
+        {!isConfigured ? (
+          <div className="mt-5 flex justify-end">
           <button
             type="button"
             onClick={onClose}
             className="btn-primary rounded-lg px-3.5 py-2 text-[13px] font-medium"
           >
-            {confirmText}
+            关闭
           </button>
-        </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )

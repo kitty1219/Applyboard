@@ -91,6 +91,7 @@ export type ResumeProfile = {
   fileType?: string
   fileSize?: number
   fileDataUrl?: string
+  storagePath?: string
   note?: string
   createdAt?: string
   updatedAt?: string
