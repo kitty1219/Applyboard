@@ -212,7 +212,7 @@ export default function ResourceLibraryPanel() {
                     ? 'bg-sky-600 font-medium text-white shadow-sm'
                     : 'bg-slate-100 font-normal text-slate-500 hover:bg-slate-200 hover:text-slate-700'
                 }`}
-                style={{ fontSize: '8px' }}
+                style={{ fontSize: '9px' }}
               >
                 {filter}
               </button>

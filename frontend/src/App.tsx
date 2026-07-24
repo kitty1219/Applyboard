@@ -71,18 +71,22 @@ type SortableListColumn = 'keytime' | 'risk' | 'progress' | 'updated'
 
 const viewModes: ViewMode[] = ['看板视图', '列表视图']
 const LIST_FILTER_REFERENCE_TIME = Date.now()
-const listTableColumns: { title: string; sortColumn?: SortableListColumn }[] = [
-  { title: '公司名称' },
-  { title: '岗位名称' },
-  { title: '招聘链接' },
-  { title: '当前大阶段' },
-  { title: '当前具体节点' },
-  { title: '当前关键时间', sortColumn: 'keytime' },
-  { title: '使用简历版本' },
-  { title: '风险提醒', sortColumn: 'risk' },
-  { title: '流程进度', sortColumn: 'progress' },
-  { title: '最近更新时间', sortColumn: 'updated' },
-  { title: '操作' },
+const listTableColumns: {
+  title: string
+  sortColumn?: SortableListColumn
+  widthClass: string
+}[] = [
+  { title: '公司名称', widthClass: 'min-w-[180px]' },
+  { title: '岗位名称', widthClass: 'min-w-[150px]' },
+  { title: '招聘链接', widthClass: 'min-w-[90px]' },
+  { title: '当前大阶段', widthClass: 'min-w-[105px]' },
+  { title: '当前具体节点', widthClass: 'min-w-[115px]' },
+  { title: '当前关键时间', sortColumn: 'keytime', widthClass: 'min-w-[155px]' },
+  { title: '使用简历版本', widthClass: 'min-w-[165px]' },
+  { title: '风险提醒', sortColumn: 'risk', widthClass: 'min-w-[110px]' },
+  { title: '流程进度', sortColumn: 'progress', widthClass: 'min-w-[280px]' },
+  { title: '最近更新时间', sortColumn: 'updated', widthClass: 'min-w-[115px]' },
+  { title: '操作', widthClass: 'min-w-[100px]' },
 ]
 
 const listSortCycle: Record<SortableListColumn, [ListSortOption, ListSortOption]> = {
@@ -1441,10 +1445,10 @@ function App() {
                   isListDragging ? 'cursor-grabbing select-none' : 'cursor-grab'
                 }`}
               >
-                <table className="min-w-[1400px] divide-y divide-slate-200 text-left">
+                <table className="min-w-[1565px] divide-y divide-slate-200 text-left">
                   <thead className="bg-slate-50/80">
                     <tr className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                      {listTableColumns.map(({ title, sortColumn }) => {
+                      {listTableColumns.map(({ title, sortColumn, widthClass }) => {
                         const sortDirection = sortColumn ? getListSortDirection(sortColumn) : null
                         return (
                         <th
@@ -1456,9 +1460,7 @@ function App() {
                                 ? 'descending'
                                 : undefined
                           }
-                          className={`px-4 py-3 font-medium ${
-                            title === '操作' ? 'min-w-[96px] whitespace-nowrap' : ''
-                          }`}
+                          className={`${widthClass} whitespace-nowrap px-4 py-3 font-medium`}
                         >
                           {sortColumn ? (
                             <button
@@ -1505,12 +1507,17 @@ function App() {
                       >
                         <td className="px-4 py-3.5 text-sm font-medium text-slate-900">{application.company}</td>
                         <td className="px-4 py-3.5">
-                          <div className="group relative inline-flex max-w-[220px]">
-                            <span className="line-clamp-1 text-sm text-slate-700">
+                          <div className="group relative inline-flex max-w-[250px]">
+                            <span className="line-clamp-2 text-sm leading-5 text-slate-700">
                               {application.position}
                             </span>
                             <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-72 rounded-lg bg-slate-900 p-3 text-xs leading-5 text-white shadow-xl group-hover:block">
-                              {application.jdNote || '暂无备注'}
+                              <div className="font-medium">{application.position}</div>
+                              {application.jdNote ? (
+                                <div className="mt-2 border-t border-white/15 pt-2 text-slate-300">
+                                  {application.jdNote}
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         </td>
@@ -1520,7 +1527,7 @@ function App() {
                             target="_blank"
                             rel="noreferrer"
                             onClick={(event) => event.stopPropagation()}
-                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[12px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
                           >
                             查看
                             <IconExternal className="text-slate-400" />
@@ -1530,7 +1537,7 @@ function App() {
                           {(() => {
                             const accent = getMainStageAccent(getMainStage(application.currentStage))
                             return (
-                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-medium ${accent.chip} ${accent.text}`}>
+                              <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[12px] font-medium ${accent.chip} ${accent.text}`}>
                                 <span className={`h-1.5 w-1.5 rounded-full ${accent.dot}`} />
                                 {getMainStage(application.currentStage)}
                               </span>
@@ -1538,11 +1545,11 @@ function App() {
                           })()}
                         </td>
                         <td className="px-4 py-3.5">
-                          <span className="inline-flex rounded-md bg-slate-100 px-1.5 py-0.5 text-[12px] font-medium text-slate-700">
+                          <span className="inline-flex whitespace-nowrap rounded-md bg-slate-100 px-1.5 py-0.5 text-[12px] font-medium text-slate-700">
                             {getDetailedStageLabel(application)}
                           </span>
                         </td>
-                        <td className="tabular px-4 py-3.5 text-[13px] text-slate-600">{getCurrentKeyTime(application)}</td>
+                        <td className="tabular whitespace-nowrap px-4 py-3.5 text-[13px] text-slate-600">{getCurrentKeyTime(application)}</td>
                         <td className="px-4 py-3.5 text-[13px] text-slate-600">{application.resumeVersion || '未指定'}</td>
                         <td className="px-4 py-3.5">
                           <div className="flex max-w-[180px] flex-wrap gap-1">
@@ -1550,7 +1557,7 @@ function App() {
                               getRiskBadges(application).map((badge) => (
                                 <span
                                   key={badge.label}
-                                  className={`rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${toneClassMap[badge.tone]}`}
+                                  className={`whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${toneClassMap[badge.tone]}`}
                                 >
                                   {badge.label}
                                 </span>
@@ -1563,7 +1570,7 @@ function App() {
                         <td className="px-4 py-3.5">
                           <ProgressMiniAxis currentStage={application.currentStage} />
                         </td>
-                        <td className="tabular px-4 py-3.5 text-[13px] text-slate-500">{formatDateTime(application.updatedAt)}</td>
+                        <td className="tabular whitespace-nowrap px-4 py-3.5 text-[13px] text-slate-500">{formatDateTime(application.updatedAt)}</td>
                         <td className="min-w-[96px] whitespace-nowrap px-4 py-3.5">
                           <button
                             type="button"
