@@ -89,6 +89,20 @@ function safeFileName(fileName: string): string {
   return extension ? `document.${extension}` : 'document.bin'
 }
 
+function syncComparable(item: { id: string }): string {
+  const comparable = { ...item } as Record<string, unknown>
+  delete comparable.fileDataUrl
+  return JSON.stringify(comparable)
+}
+
+function getChangedItems<T extends { id: string }>(items: T[], previousItems: T[]): T[] {
+  const previousById = new Map(previousItems.map((item) => [item.id, item]))
+  return items.filter((item) => {
+    const previousItem = previousById.get(item.id)
+    return !previousItem || syncComparable(item) !== syncComparable(previousItem)
+  })
+}
+
 async function prepareResume(userId: string, resume: ResumeProfile): Promise<ResumeProfile> {
   if (!resume.fileDataUrl?.startsWith('data:')) {
     const storedResume = { ...resume }
@@ -110,20 +124,16 @@ async function prepareResume(userId: string, resume: ResumeProfile): Promise<Res
   return { ...storedResume, storagePath }
 }
 
-async function replaceRows<T extends { id: string }>(
+async function syncRows<T extends { id: string }>(
   table: CloudTable,
   userId: string,
   items: T[],
+  previousItems: T[],
+  preparedChangedItems?: T[],
 ): Promise<void> {
-  const { data: existingData, error: existingError } = await supabase
-    .from(table)
-    .select('id')
-    .eq('user_id', userId)
-
-  throwIfError(existingError)
   const itemIds = new Set(items.map((item) => item.id))
-  const deletedIds = (existingData ?? [])
-    .map((row) => row.id as string)
+  const deletedIds = previousItems
+    .map((item) => item.id)
     .filter((id) => !itemIds.has(id))
 
   if (deletedIds.length > 0) {
@@ -135,10 +145,11 @@ async function replaceRows<T extends { id: string }>(
     throwIfError(error)
   }
 
-  if (items.length > 0) {
+  const changedItems = preparedChangedItems ?? getChangedItems(items, previousItems)
+  if (changedItems.length > 0) {
     const now = new Date().toISOString()
     const { error } = await supabase.from(table).upsert(
-      items.map((item) => ({
+      changedItems.map((item) => ({
         user_id: userId,
         id: item.id,
         payload: item,
@@ -150,19 +161,17 @@ async function replaceRows<T extends { id: string }>(
   }
 }
 
-async function syncResumes(userId: string, resumes: ResumeProfile[]): Promise<void> {
-  const { data: existingData, error: existingError } = await supabase
-    .from('resumes')
-    .select('id,payload')
-    .eq('user_id', userId)
-
-  throwIfError(existingError)
+async function syncResumes(
+  userId: string,
+  resumes: ResumeProfile[],
+  previousResumes: ResumeProfile[],
+): Promise<void> {
   const resumeIds = new Set(resumes.map((resume) => resume.id))
-  const deletedRows = ((existingData ?? []) as CloudRow<ResumeProfile>[]).filter(
-    (row) => !resumeIds.has(row.id),
+  const deletedResumes = previousResumes.filter(
+    (resume) => !resumeIds.has(resume.id),
   )
-  const deletedPaths = deletedRows
-    .map((row) => row.payload.storagePath)
+  const deletedPaths = deletedResumes
+    .map((resume) => resume.storagePath)
     .filter((path): path is string => Boolean(path))
 
   if (deletedPaths.length > 0) {
@@ -170,16 +179,33 @@ async function syncResumes(userId: string, resumes: ResumeProfile[]): Promise<vo
     throwIfError(error)
   }
 
-  const preparedResumes = await Promise.all(
-    resumes.map((resume) => prepareResume(userId, resume)),
+  const changedResumes = getChangedItems(resumes, previousResumes)
+  const preparedChangedResumes = await Promise.all(
+    changedResumes.map((resume) => prepareResume(userId, resume)),
   )
-  await replaceRows('resumes', userId, preparedResumes)
+  await syncRows('resumes', userId, resumes, previousResumes, preparedChangedResumes)
 }
 
-export async function syncCloudData(userId: string, data: CloudData): Promise<void> {
-  await Promise.all([
-    replaceRows('applications', userId, data.applications),
-    syncResumes(userId, data.resumes),
-    replaceRows('job_resources', userId, data.resources),
-  ])
+export async function syncCloudData(
+  userId: string,
+  data: CloudData,
+  previousData: CloudData = { applications: [], resumes: [], resources: [] },
+): Promise<void> {
+  const tasks: Promise<void>[] = []
+
+  if (data.applications !== previousData.applications) {
+    tasks.push(
+      syncRows('applications', userId, data.applications, previousData.applications),
+    )
+  }
+  if (data.resumes !== previousData.resumes) {
+    tasks.push(syncResumes(userId, data.resumes, previousData.resumes))
+  }
+  if (data.resources !== previousData.resources) {
+    tasks.push(
+      syncRows('job_resources', userId, data.resources, previousData.resources),
+    )
+  }
+
+  await Promise.all(tasks)
 }

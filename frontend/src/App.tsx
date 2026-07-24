@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Session } from '@supabase/supabase-js'
+import type { RealtimeChannel, Session } from '@supabase/supabase-js'
 import { loadApplicationsFromStorage, saveApplicationsToStorage } from './applicationStorage'
 import { loadCloudData, syncCloudData } from './cloudStorage'
 import { mockApplications, mockResumes } from './mockData'
@@ -441,6 +441,18 @@ function App() {
   const [isCloudLoading, setIsCloudLoading] = useState(false)
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'saved' | 'error'>('idle')
   const syncTimerRef = useRef<number | null>(null)
+  const remoteReloadTimerRef = useRef<number | null>(null)
+  const lastSyncedDataRef = useRef<{
+    applications: Application[]
+    resumes: ResumeProfile[]
+    resources: typeof resources
+  } | null>(null)
+  const isApplyingCloudRef = useRef(false)
+  const isSyncInFlightRef = useRef(false)
+  const hasPendingLocalChangesRef = useRef(false)
+  const localChangeVersionRef = useRef(0)
+  const syncQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const realtimeChannelRef = useRef<RealtimeChannel | null>(null)
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
@@ -479,6 +491,9 @@ function App() {
         setIsCloudReady(false)
         setIsCloudLoading(false)
         setSyncStatus('idle')
+        lastSyncedDataRef.current = null
+        hasPendingLocalChangesRef.current = false
+        localChangeVersionRef.current = 0
       }
       if (event === 'PASSWORD_RECOVERY') {
         setIsPasswordRecovery(true)
@@ -540,20 +555,23 @@ function App() {
               resumes: [...cloudData.resumes, ...missingLocalResumes],
               resources: [...cloudData.resources, ...missingLocalResources],
             }
-            await syncCloudData(userId, migrationData)
+            await syncCloudData(userId, migrationData, cloudData)
             if (!active) {
               return
             }
+            lastSyncedDataRef.current = migrationData
             setApplications(migrationData.applications)
             setResumes(migrationData.resumes)
             setResources(migrationData.resources)
             setAuthMessage('本机数据已成功导入云端。')
           } else {
-            setApplications([])
-            setResumes([])
-            setResources([])
+            lastSyncedDataRef.current = cloudData
+            setApplications(cloudData.applications)
+            setResumes(cloudData.resumes)
+            setResources(cloudData.resources)
           }
         } else {
+          lastSyncedDataRef.current = cloudData
           setApplications(cloudData.applications)
           setResumes(cloudData.resumes)
           setResources(cloudData.resources)
@@ -584,17 +602,49 @@ function App() {
       return
     }
 
+    if (isApplyingCloudRef.current) {
+      isApplyingCloudRef.current = false
+      return
+    }
+
     if (syncTimerRef.current !== null) {
       window.clearTimeout(syncTimerRef.current)
     }
 
+    hasPendingLocalChangesRef.current = true
+    const snapshotVersion = localChangeVersionRef.current + 1
+    localChangeVersionRef.current = snapshotVersion
+    const snapshot = { applications, resumes, resources }
     syncTimerRef.current = window.setTimeout(() => {
       setSyncStatus('syncing')
-      void syncCloudData(session.user.id, { applications, resumes, resources })
-        .then(() => setSyncStatus('saved'))
+      syncQueueRef.current = syncQueueRef.current
+        .then(async () => {
+          isSyncInFlightRef.current = true
+          const previousData = lastSyncedDataRef.current ?? {
+            applications: [],
+            resumes: [],
+            resources: [],
+          }
+          await syncCloudData(session.user.id, snapshot, previousData)
+          lastSyncedDataRef.current = snapshot
+        })
+        .then(() => {
+          if (localChangeVersionRef.current === snapshotVersion) {
+            hasPendingLocalChangesRef.current = false
+          }
+          setSyncStatus('saved')
+          void realtimeChannelRef.current?.send({
+            type: 'broadcast',
+            event: 'refresh',
+            payload: {},
+          })
+        })
         .catch((error: unknown) => {
           setSyncStatus('error')
           setAuthError(error instanceof Error ? error.message : '云端同步失败')
+        })
+        .finally(() => {
+          isSyncInFlightRef.current = false
         })
     }, 700)
 
@@ -604,6 +654,70 @@ function App() {
       }
     }
   }, [applications, isCloudReady, resources, resumes, session])
+
+  useEffect(() => {
+    if (!session || !isCloudReady) {
+      return
+    }
+
+    let active = true
+    const userId = session.user.id
+
+    function scheduleCloudReload() {
+      if (remoteReloadTimerRef.current !== null) {
+        window.clearTimeout(remoteReloadTimerRef.current)
+      }
+      remoteReloadTimerRef.current = window.setTimeout(() => {
+        if (isSyncInFlightRef.current || hasPendingLocalChangesRef.current) {
+          return
+        }
+
+        void loadCloudData(userId)
+          .then((cloudData) => {
+            if (!active) {
+              return
+            }
+            isApplyingCloudRef.current = true
+            hasPendingLocalChangesRef.current = false
+            lastSyncedDataRef.current = cloudData
+            setApplications(cloudData.applications)
+            setResumes(cloudData.resumes)
+            setResources(cloudData.resources)
+            setSyncStatus('saved')
+          })
+          .catch((error: unknown) => {
+            if (active) {
+              setSyncStatus('error')
+              setAuthError(error instanceof Error ? error.message : '实时数据刷新失败')
+            }
+          })
+      }, 450)
+    }
+
+    const filter = `user_id=eq.${userId}`
+    const channel = supabase
+      .channel(`applyboard-${userId}`, { config: { broadcast: { self: true } } })
+      .on('broadcast', { event: 'refresh' }, scheduleCloudReload)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'applications', filter }, scheduleCloudReload)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'applications', filter }, scheduleCloudReload)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'resumes', filter }, scheduleCloudReload)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'resumes', filter }, scheduleCloudReload)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'job_resources', filter }, scheduleCloudReload)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'job_resources', filter }, scheduleCloudReload)
+      .subscribe()
+    realtimeChannelRef.current = channel
+
+    return () => {
+      active = false
+      if (realtimeChannelRef.current === channel) {
+        realtimeChannelRef.current = null
+      }
+      if (remoteReloadTimerRef.current !== null) {
+        window.clearTimeout(remoteReloadTimerRef.current)
+      }
+      void supabase.removeChannel(channel)
+    }
+  }, [isCloudReady, session])
 
   async function handleSignIn(email: string, password: string) {
     setIsAuthBusy(true)
@@ -658,7 +772,7 @@ function App() {
   async function handleSignOut() {
     setIsAuthBusy(true)
     setAuthError('')
-    const { error } = await supabase.auth.signOut()
+    const { error } = await supabase.auth.signOut({ scope: 'local' })
     setIsAuthBusy(false)
     if (error) {
       setAuthError(error.message)
