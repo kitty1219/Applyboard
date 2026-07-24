@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RealtimeChannel, Session } from '@supabase/supabase-js'
 import { loadApplicationsFromStorage, saveApplicationsToStorage } from './applicationStorage'
-import { loadCloudData, syncCloudData } from './cloudStorage'
+import { loadCloudData, syncCloudData, type CloudData } from './cloudStorage'
 import { mockApplications, mockResumes } from './mockData'
 import ResourceLibraryPanel from './ResourceLibraryPanel'
 import {
@@ -2021,6 +2021,12 @@ function App() {
       <ImportPlaceholderModal
         open={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
+        onRestore={(data) => {
+          setApplications(data.applications)
+          setResumes(data.resumes)
+          setResources(data.resources)
+          setIsImportModalOpen(false)
+        }}
       />
 
       <ResumeUploadModal
@@ -2756,10 +2762,49 @@ function InfoItem({ label, value }: { label: string; value: string }) {
 function ImportPlaceholderModal({
   open,
   onClose,
+  onRestore,
 }: {
   open: boolean
   onClose: () => void
+  onRestore: (data: CloudData) => void
 }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [error, setError] = useState('')
+
+  async function restoreBackup() {
+    if (!file) {
+      setError('请先选择备份文件。')
+      return
+    }
+
+    try {
+      const parsed = JSON.parse(await file.text()) as Record<string, unknown>
+      const applications = parsed['applyboard.applications.v1']
+      const resumes = parsed['applyboard.resumes.v1']
+      const resources = parsed['applyboard.job-resources.v1']
+      if (!Array.isArray(applications) || !Array.isArray(resumes) || !Array.isArray(resources)) {
+        throw new Error('备份文件缺少 ApplyBoard 数据。')
+      }
+
+      const confirmed = window.confirm(
+        `将恢复 ${applications.length} 条申请、${resumes.length} 份简历和 ${resources.length} 条网址。确定继续？`,
+      )
+      if (!confirmed) {
+        return
+      }
+
+      onRestore({
+        applications: applications as Application[],
+        resumes: resumes as ResumeProfile[],
+        resources: resources as typeof resources,
+      })
+      setFile(null)
+      setError('')
+    } catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : '备份文件读取失败。')
+    }
+  }
+
   return (
     <div
       className={`fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px] px-4 transition-opacity duration-200 ${open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}
@@ -2781,18 +2826,36 @@ function ImportPlaceholderModal({
           </button>
         </div>
         <p className="mt-2 text-[13px] leading-6 text-slate-600">
-          当前版本仅保留批量导入入口与提示文案，后续版本可支持 Excel / CSV 文件导入。
+          选择 ApplyBoard JSON 备份文件，恢复申请、简历和网址。
         </p>
-        <div className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3.5 text-[12px] leading-5 text-slate-500">
-          规划提示：后续可在此接入模板下载、字段映射、导入预校验和错误回显。
-        </div>
-        <div className="mt-5 flex justify-end">
+        <input
+          type="file"
+          accept=".json,application/json"
+          onChange={(event) => {
+            setFile(event.target.files?.[0] ?? null)
+            setError('')
+          }}
+          className="mt-4 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-2.5 file:py-1.5 file:text-[12px] file:font-medium file:text-indigo-700"
+        />
+        {error ? (
+          <div className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-[12px] text-rose-700">
+            {error}
+          </div>
+        ) : null}
+        <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
+            className="rounded-lg border border-slate-200 px-3.5 py-2 text-[13px] font-medium text-slate-600"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={() => void restoreBackup()}
             className="btn-primary rounded-lg px-3.5 py-2 text-[13px] font-medium"
           >
-            我知道了
+            恢复备份
           </button>
         </div>
       </div>

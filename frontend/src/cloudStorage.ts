@@ -3,6 +3,7 @@ import type { JobResource } from './resourceStorage'
 import { supabase } from './supabase'
 
 type CloudTable = 'applications' | 'resumes' | 'job_resources'
+const CLOUD_DELETIONS_ENABLED = false
 
 type CloudRow<T> = {
   id: string
@@ -136,7 +137,7 @@ async function syncRows<T extends { id: string }>(
     .map((item) => item.id)
     .filter((id) => !itemIds.has(id))
 
-  if (deletedIds.length > 0) {
+  if (CLOUD_DELETIONS_ENABLED && deletedIds.length > 0) {
     const { error } = await supabase
       .from(table)
       .delete()
@@ -174,7 +175,7 @@ async function syncResumes(
     .map((resume) => resume.storagePath)
     .filter((path): path is string => Boolean(path))
 
-  if (deletedPaths.length > 0) {
+  if (CLOUD_DELETIONS_ENABLED && deletedPaths.length > 0) {
     const { error } = await supabase.storage.from('resumes').remove(deletedPaths)
     throwIfError(error)
   }
