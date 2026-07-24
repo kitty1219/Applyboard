@@ -507,13 +507,15 @@ function App() {
     }
   }, [])
 
+  const sessionUserId = session?.user.id
+
   useEffect(() => {
-    if (!session) {
+    if (!sessionUserId) {
       return
     }
 
     let active = true
-    const userId = session.user.id
+    const userId = sessionUserId
 
     async function initializeCloudData() {
       setIsCloudLoading(true)
@@ -527,33 +529,25 @@ function App() {
         }
 
         const localData = initialLocalData
-        const cloudApplicationIds = new Set(cloudData.applications.map((item) => item.id))
-        const cloudResumeIds = new Set(cloudData.resumes.map((item) => item.id))
-        const cloudResourceIds = new Set(cloudData.resources.map((item) => item.id))
-        const missingLocalApplications = (localData.applications ?? []).filter(
-          (item) => !cloudApplicationIds.has(item.id),
-        )
-        const missingLocalResumes = (localData.resumes ?? []).filter(
-          (item) => !cloudResumeIds.has(item.id),
-        )
-        const missingLocalResources = (localData.resources ?? []).filter(
-          (item) => !cloudResourceIds.has(item.id),
-        )
-        const missingLocalCount =
-          missingLocalApplications.length +
-          missingLocalResumes.length +
-          missingLocalResources.length
+        const cloudIsEmpty =
+          cloudData.applications.length === 0 &&
+          cloudData.resumes.length === 0 &&
+          cloudData.resources.length === 0
+        const localCount =
+          (localData.applications?.length ?? 0) +
+          (localData.resumes?.length ?? 0) +
+          (localData.resources?.length ?? 0)
 
-        if (missingLocalCount > 0) {
+        if (cloudIsEmpty && localCount > 0) {
           const shouldImport = window.confirm(
-            `检测到当前浏览器还有 ${missingLocalApplications.length} 条申请、${missingLocalResumes.length} 份简历和 ${missingLocalResources.length} 条网址尚未上传。是否继续导入当前登录账号？`,
+            `检测到当前浏览器有 ${localData.applications?.length ?? 0} 条申请、${localData.resumes?.length ?? 0} 份简历和 ${localData.resources?.length ?? 0} 条网址。是否导入当前登录账号？`,
           )
 
           if (shouldImport) {
             const migrationData = {
-              applications: [...cloudData.applications, ...missingLocalApplications],
-              resumes: [...cloudData.resumes, ...missingLocalResumes],
-              resources: [...cloudData.resources, ...missingLocalResources],
+              applications: localData.applications ?? [],
+              resumes: localData.resumes ?? [],
+              resources: localData.resources ?? [],
             }
             await syncCloudData(userId, migrationData, cloudData)
             if (!active) {
@@ -595,7 +589,7 @@ function App() {
     return () => {
       active = false
     }
-  }, [initialLocalData, session])
+  }, [initialLocalData, sessionUserId])
 
   useEffect(() => {
     if (!session || !isCloudReady) {
