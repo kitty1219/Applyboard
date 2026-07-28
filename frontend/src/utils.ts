@@ -141,6 +141,24 @@ function getHoursDiff(target?: string): number | null {
   return (time - Date.now()) / (1000 * 60 * 60)
 }
 
+function getCalendarDayDiff(target?: string): number | null {
+  const time = getTimestamp(target)
+  if (time === null) {
+    return null
+  }
+
+  const targetDate = new Date(time)
+  const now = new Date()
+  const targetDay = new Date(
+    targetDate.getFullYear(),
+    targetDate.getMonth(),
+    targetDate.getDate(),
+  ).getTime()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+
+  return Math.round((targetDay - today) / (1000 * 60 * 60 * 24))
+}
+
 export function getRelevantTime(application: Application): string | undefined {
   const { currentStage, stageMeta } = application
 
@@ -443,9 +461,15 @@ export function getRiskBadges(application: Application): RiskBadge[] {
   }
 
   if (currentStage === '待投递') {
-    const badge = buildTimeBasedBadge('今日截止', '临近截止', hoursUntil)
-    if (badge) {
-      badges.push(badge)
+    const dayDiff = getCalendarDayDiff(relevantTime)
+    if (hoursUntil !== null && hoursUntil < 0) {
+      badges.push({ label: '已截止', tone: 'rose' })
+    } else if (dayDiff === 0) {
+      badges.push({ label: '今日截止', tone: 'rose' })
+    } else if (dayDiff === 1) {
+      badges.push({ label: '明日截止', tone: 'amber' })
+    } else if (dayDiff !== null && dayDiff >= 2 && dayDiff <= 5) {
+      badges.push({ label: '临近截止', tone: 'amber' })
     }
   }
 
