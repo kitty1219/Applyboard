@@ -2322,7 +2322,20 @@ function ApplicationCard({
         </div>
       </button>
 
-      <div className="mt-2.5 flex justify-end border-t border-slate-100 pt-2.5">
+      <div className="mt-2.5 flex justify-end gap-1.5 border-t border-slate-100 pt-2.5">
+        {application.link.trim() ? (
+          <a
+            href={application.link}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
+            aria-label={`打开${application.company}的岗位链接`}
+            className="inline-flex items-center gap-0.5 rounded border border-slate-200 bg-white px-1 py-0.5 text-[9px] font-medium leading-tight text-slate-500 transition hover:border-sky-200 hover:bg-sky-50/50 hover:text-sky-700"
+          >
+            岗位链接
+            <IconExternal className="h-2.5 w-2.5" />
+          </a>
+        ) : null}
         <button
           type="button"
           onClick={onUpdateStatus}
