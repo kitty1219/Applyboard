@@ -169,6 +169,17 @@ function isTimestampInRange(timestamp: number, start: number | null, end: number
   return (start === null || timestamp >= start) && (end === null || timestamp <= end)
 }
 
+function compareResumesByCreatedAt(first: ResumeProfile, second: ResumeProfile): number {
+  const getCreatedTime = (resume: ResumeProfile) => {
+    const value = resume.createdAt ?? resume.updatedAt ?? resume.lastUsed
+    const time = new Date(value).getTime()
+    return Number.isNaN(time) ? 0 : time
+  }
+
+  const createdAtDifference = getCreatedTime(second) - getCreatedTime(first)
+  return createdAtDifference || first.id.localeCompare(second.id)
+}
+
 function getRiskPriority(application: Application) {
   const tonePriority: Record<string, number> = {
     rose: 3,
@@ -772,6 +783,11 @@ function App() {
         .includes(keyword),
     )
   }, [applications, searchTerm])
+
+  const displayedResumes = useMemo(
+    () => [...resumes].sort(compareResumesByCreatedAt),
+    [resumes],
+  )
 
   const availableResumeVersions = useMemo(
     () =>
@@ -1601,8 +1617,8 @@ function App() {
             }
           >
             <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto pr-1">
-              {resumes.length > 0 ? (
-                resumes.map((resume) => (
+              {displayedResumes.length > 0 ? (
+                displayedResumes.map((resume) => (
                   <button
                     key={resume.id}
                     type="button"

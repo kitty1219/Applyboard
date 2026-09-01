@@ -50,6 +50,16 @@ function IconExternal() {
   )
 }
 
+function IconPin() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 17v5" />
+      <path d="M5 3h14" />
+      <path d="m6 3 1 7-3 3h16l-3-3 1-7" />
+    </svg>
+  )
+}
+
 function normalizeUrl(value: string): string | null {
   const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`
 
@@ -86,13 +96,52 @@ export default function ResourceLibraryPanel({
   const [formError, setFormError] = useState('')
   const [isDeleting, setIsDeleting] = useState(false)
 
-  const filteredResources = useMemo(
-    () =>
+  const filteredResources = useMemo(() => {
+    const filtered =
       activeFilter === '全部'
         ? resources
-        : resources.filter((resource) => resource.category === activeFilter),
+        : resources.filter((resource) => resource.category === activeFilter)
+
+    const getTime = (value?: string) => {
+      const time = value ? new Date(value).getTime() : 0
+      return Number.isNaN(time) ? 0 : time
+    }
+
+    return [...filtered].sort((first, second) => {
+      const pinnedDifference = Number(Boolean(second.pinned)) - Number(Boolean(first.pinned))
+      if (pinnedDifference !== 0) {
+        return pinnedDifference
+      }
+
+      if (first.pinned && second.pinned) {
+        const pinnedAtDifference = getTime(second.pinnedAt) - getTime(first.pinnedAt)
+        if (pinnedAtDifference !== 0) {
+          return pinnedAtDifference
+        }
+      }
+
+      const createdAtDifference = getTime(second.createdAt) - getTime(first.createdAt)
+      return createdAtDifference || first.name.localeCompare(second.name, 'zh-CN')
+    })
+  },
     [activeFilter, resources],
   )
+
+  function togglePinned(resourceId: string) {
+    const now = new Date().toISOString()
+    onResourcesChange((current) =>
+      current.map((resource) =>
+        resource.id === resourceId
+          ? {
+              ...resource,
+              pinned: !resource.pinned,
+              pinnedAt: resource.pinned ? undefined : now,
+              updatedAt: now,
+            }
+          : resource,
+      ),
+    )
+  }
 
   function openCreateModal() {
     setEditingResourceId(null)
@@ -245,6 +294,12 @@ export default function ResourceLibraryPanel({
                           {resource.category}
                         </span>
                       ) : null}
+                      {resource.pinned ? (
+                        <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-50 px-1.5 py-0.5 text-[9.5px] font-medium text-amber-700">
+                          <IconPin />
+                          置顶
+                        </span>
+                      ) : null}
                     </div>
                     <div className="mt-0.5 truncate text-[10.5px] text-slate-400">
                       {getUrlLabel(resource.url)}
@@ -259,6 +314,20 @@ export default function ResourceLibraryPanel({
                   >
                     <IconExternal />
                   </a>
+                  <button
+                    type="button"
+                    onClick={() => togglePinned(resource.id)}
+                    aria-label={resource.pinned ? `取消置顶${resource.name}` : `置顶${resource.name}`}
+                    aria-pressed={Boolean(resource.pinned)}
+                    title={resource.pinned ? '取消置顶' : '置顶'}
+                    className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ${
+                      resource.pinned
+                        ? 'bg-amber-50 text-amber-600 hover:bg-amber-100'
+                        : 'text-slate-300 hover:bg-white hover:text-amber-600'
+                    }`}
+                  >
+                    <IconPin />
+                  </button>
                   <button
                     type="button"
                     onClick={() => openEditModal(resource)}

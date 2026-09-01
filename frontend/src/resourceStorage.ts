@@ -8,6 +8,8 @@ export type JobResource = {
   url: string
   category?: ResourceCategory
   note?: string
+  pinned?: boolean
+  pinnedAt?: string
   createdAt: string
   updatedAt: string
 }
@@ -80,6 +82,8 @@ function looksLikeJobResource(value: unknown): value is JobResource {
     (row.category === undefined ||
       RESOURCE_CATEGORIES.includes(row.category as ResourceCategory)) &&
     (row.note === undefined || typeof row.note === 'string') &&
+    (row.pinned === undefined || typeof row.pinned === 'boolean') &&
+    (row.pinnedAt === undefined || typeof row.pinnedAt === 'string') &&
     typeof row.createdAt === 'string' &&
     typeof row.updatedAt === 'string'
   )
