@@ -212,6 +212,29 @@ export function getDetailedStageLabel(application: Application): string {
     : application.currentStage
 }
 
+function getBoardActivityRank(application: Application): number {
+  if (getMainStage(application.currentStage) === '已结束') {
+    return 1
+  }
+
+  return isWaitingForResult(application) ? 1 : 0
+}
+
+function compareBoardApplications(first: Application, second: Application): number {
+  const activityDifference = getBoardActivityRank(first) - getBoardActivityRank(second)
+  if (activityDifference !== 0) {
+    return activityDifference
+  }
+
+  const createdAtDifference =
+    (getTimestamp(second.createdAt) ?? 0) - (getTimestamp(first.createdAt) ?? 0)
+  if (createdAtDifference !== 0) {
+    return createdAtDifference
+  }
+
+  return first.id.localeCompare(second.id)
+}
+
 function formatRemainingTime(target?: string): string | null {
   const hours = getHoursDiff(target)
   if (hours === null || hours < 0) {
@@ -578,6 +601,8 @@ export function classifyEmail(
 export function groupApplicationsByMainStage(applications: Application[]) {
   return MAIN_STAGE_COLUMNS.map((stage) => ({
     stage,
-    items: applications.filter((application) => getMainStage(application.currentStage) === stage),
+    items: applications
+      .filter((application) => getMainStage(application.currentStage) === stage)
+      .sort(compareBoardApplications),
   }))
 }
