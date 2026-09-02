@@ -1701,9 +1701,9 @@ function App() {
               type="button"
               disabled={isExportingApplications}
               onClick={() => void handleExportApplications()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[12px] font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10.5px] font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
             >
-              <IconDownload />
+              <IconDownload className="h-3 w-3" />
               {isExportingApplications ? '正在导出…' : '导出 Excel'}
             </button>
             <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] text-slate-500">
