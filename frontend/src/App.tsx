@@ -11,6 +11,7 @@ import {
 } from './cloudStorage'
 import { mockApplications, mockResumes } from './mockData'
 import ResourceLibraryPanel from './ResourceLibraryPanel'
+import { exportApplicationsToExcel } from './excelExport'
 import {
   defaultJobResources,
   loadJobResourcesFromStorage,
@@ -223,6 +224,13 @@ const IconPlus = ({ className = '' }: { className?: string }) => (
 const IconUpload = ({ className = '' }: { className?: string }) => (
   <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M12 16V4M12 4l-4 4M12 4l4 4" />
+    <path d="M4 17v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1" />
+  </svg>
+)
+
+const IconDownload = ({ className = '' }: { className?: string }) => (
+  <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 4v12M12 16l-4-4M12 16l4-4" />
     <path d="M4 17v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1" />
   </svg>
 )
@@ -479,6 +487,7 @@ function App() {
   const [selectedResume, setSelectedResume] = useState<ResumeProfile | null>(null)
   const [resumeUploadForm, setResumeUploadForm] = useState<ResumeUploadFormState>(initialResumeUploadState)
   const [isSavingResume, setIsSavingResume] = useState(false)
+  const [isExportingApplications, setIsExportingApplications] = useState(false)
   const [formState, setFormState] = useState<DrawerFormState>(initialFormState)
   const [statusEditor, setStatusEditor] = useState<{
     applicationId: string | null
@@ -1159,6 +1168,24 @@ function App() {
     hasPendingLocalChangesRef.current = false
   }
 
+  async function handleExportApplications() {
+    const applicationsToExport = viewMode === '列表视图' ? listApplications : filteredApplications
+    if (applicationsToExport.length === 0) {
+      window.alert('当前没有可导出的申请记录。')
+      return
+    }
+
+    setIsExportingApplications(true)
+    try {
+      await exportApplicationsToExcel(applicationsToExport)
+    } catch (error) {
+      console.error('Excel export failed:', error)
+      window.alert('Excel 导出失败，请稍后重试。')
+    } finally {
+      setIsExportingApplications(false)
+    }
+  }
+
   async function handleDeleteApplication(applicationId: string) {
     const confirmed = window.confirm('确定删除这条申请吗？删除后无法恢复。')
     if (!confirmed) {
@@ -1669,9 +1696,20 @@ function App() {
               </button>
             ))}
           </div>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] text-slate-500">
-            <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-            共 <span className="tabular font-semibold text-slate-900">{filteredApplications.length}</span> 条申请
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={isExportingApplications}
+              onClick={() => void handleExportApplications()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[12px] font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+            >
+              <IconDownload />
+              {isExportingApplications ? '正在导出…' : '导出 Excel'}
+            </button>
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[12px] text-slate-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+              共 <span className="tabular font-semibold text-slate-900">{filteredApplications.length}</span> 条申请
+            </div>
           </div>
         </section>
 
