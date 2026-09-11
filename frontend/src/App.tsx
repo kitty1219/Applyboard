@@ -11,6 +11,7 @@ import {
 } from './cloudStorage'
 import { mockApplications, mockResumes } from './mockData'
 import ResourceLibraryPanel from './ResourceLibraryPanel'
+import ScheduleCalendar from './ScheduleCalendar'
 import { exportApplicationsToExcel } from './excelExport'
 import {
   defaultJobResources,
@@ -18,6 +19,11 @@ import {
   saveJobResourcesToStorage,
 } from './resourceStorage'
 import { loadResumesFromStorage, saveResumesToStorage } from './resumeStorage'
+import {
+  loadScheduleBlocksFromStorage,
+  saveScheduleBlocksToStorage,
+  type ScheduleBlock,
+} from './scheduleStorage'
 import { isSupabaseConfigured, supabase } from './supabase'
 import type { Application, ApplicationStage, MainStage, ResumeProfile, StageMeta, ViewMode } from './types'
 import { MAIN_STAGE_OPTIONS, PROGRESS_AXIS_STEPS, STAGE_OPTIONS } from './types'
@@ -85,7 +91,7 @@ type ListSortOption =
   | 'risk-asc'
 type SortableListColumn = 'keytime' | 'risk' | 'progress' | 'updated'
 
-const viewModes: ViewMode[] = ['看板视图', '列表视图']
+const viewModes: ViewMode[] = ['看板视图', '列表视图', '日程视图']
 const LIST_FILTER_REFERENCE_TIME = Date.now()
 const listTableColumns: {
   title: string
@@ -410,6 +416,7 @@ function App() {
     applications: loadApplicationsFromStorage(),
     resumes: loadResumesFromStorage(),
     resources: loadJobResourcesFromStorage(),
+    scheduleBlocks: loadScheduleBlocksFromStorage(),
   }))
   const [viewMode, setViewMode] = useState<ViewMode>('看板视图')
   const [searchTerm, setSearchTerm] = useState('')
@@ -457,6 +464,13 @@ function App() {
   useEffect(() => {
     saveJobResourcesToStorage(resources)
   }, [resources])
+  const [scheduleBlocks, setScheduleBlocks] = useState<ScheduleBlock[]>(
+    () => initialLocalData.scheduleBlocks,
+  )
+
+  useEffect(() => {
+    saveScheduleBlocksToStorage(scheduleBlocks)
+  }, [scheduleBlocks])
   const [session, setSession] = useState<Session | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
   const [isAuthBusy, setIsAuthBusy] = useState(false)
@@ -1765,7 +1779,7 @@ function App() {
                 })}
               </div>
             </div>
-          ) : (
+          ) : viewMode === '列表视图' ? (
             <div className="rounded-lg border border-slate-200">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/60 px-3 py-2.5">
                 <div className="flex flex-wrap items-center gap-2">
@@ -2124,6 +2138,13 @@ function App() {
                 </table>
               </div>
             </div>
+          ) : (
+            <ScheduleCalendar
+              applications={applications}
+              blocks={scheduleBlocks}
+              onBlocksChange={setScheduleBlocks}
+              onOpenApplication={openApplicationDetail}
+            />
           )}
         </main>
 

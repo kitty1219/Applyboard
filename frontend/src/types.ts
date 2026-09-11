@@ -97,4 +97,4 @@ export type ResumeProfile = {
   updatedAt?: string
 }
 
-export type ViewMode = '看板视图' | '列表视图'
+export type ViewMode = '看板视图' | '列表视图' | '日程视图'
