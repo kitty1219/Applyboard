@@ -23,14 +23,6 @@ type CalendarEvent = {
   block?: ScheduleBlock
 }
 
-type DeadlineReminder = {
-  id: string
-  date: string
-  time: string
-  label: string
-  applicationId: string
-}
-
 type BlockFormState = {
   title: string
   date: string
@@ -78,15 +70,6 @@ const TIMED_FIELDS: Array<{
   { key: 'interview2Time', label: '二面', type: '面试' },
   { key: 'interview3Time', label: '三面', type: '面试' },
   { key: 'hrInterviewTime', label: 'HR面', type: '面试' },
-]
-
-const DEADLINE_FIELDS: Array<{ key: keyof StageMeta; label: string }> = [
-  { key: 'applyDeadline', label: '投递截止' },
-  { key: 'assessmentDeadline', label: '测评截止' },
-  { key: 'test1Deadline', label: '笔试1截止' },
-  { key: 'test2Deadline', label: '笔试2截止' },
-  { key: 'offerConfirmTime', label: 'Offer确认' },
-  { key: 'bgCheckDeadline', label: '背调截止' },
 ]
 
 const WEEKDAY_FORMATTER = new Intl.DateTimeFormat('zh-CN', { weekday: 'short' })
@@ -143,7 +126,6 @@ function buildVisibleDates(dayCount: CalendarRange) {
 
 function buildApplicationSchedule(applications: Application[]) {
   const events: CalendarEvent[] = []
-  const reminders: DeadlineReminder[] = []
 
   applications.forEach((application) => {
     if (['已通过', '已淘汰', '已放弃'].includes(application.currentStage)) {
@@ -175,31 +157,9 @@ function buildApplicationSchedule(applications: Application[]) {
       })
     })
 
-    DEADLINE_FIELDS.forEach(({ key, label }) => {
-      const value = application.stageMeta[key]
-      const date = value ? parseDate(value) : null
-      if (!date) {
-        return
-      }
-
-      const duplicateTimedEvent = TIMED_FIELDS.some(
-        (field) => application.stageMeta[field.key] === value,
-      )
-      if (duplicateTimedEvent) {
-        return
-      }
-
-      reminders.push({
-        id: `${application.id}-${key}`,
-        date: toDateKey(date),
-        time: formatTime(date),
-        label: `${application.company} · ${label}`,
-        applicationId: application.id,
-      })
-    })
   })
 
-  return { events, reminders }
+  return events
 }
 
 function createInitialForm(date: string, period: SchedulePeriod): BlockFormState {
@@ -256,18 +216,14 @@ export default function ScheduleCalendar({
   )
   const visibleEvents = useMemo(
     () =>
-      [...applicationSchedule.events, ...manualEvents]
+      [...applicationSchedule, ...manualEvents]
         .filter((event) => visibleDateKeys.has(event.date))
         .sort(
           (first, second) =>
             first.date.localeCompare(second.date) ||
             (first.time ?? '99:99').localeCompare(second.time ?? '99:99'),
         ),
-    [applicationSchedule.events, manualEvents, visibleDateKeys],
-  )
-  const visibleReminders = useMemo(
-    () => applicationSchedule.reminders.filter((reminder) => visibleDateKeys.has(reminder.date)),
-    [applicationSchedule.reminders, visibleDateKeys],
+    [applicationSchedule, manualEvents, visibleDateKeys],
   )
   const occupiedSlotCount = useMemo(
     () => new Set(visibleEvents.map((event) => `${event.date}-${event.period}`)).size,
@@ -440,7 +396,6 @@ export default function ScheduleCalendar({
               const isToday = dateIndex === 0
               const isWeekend = date.getDay() === 0 || date.getDay() === 6
               const dayEvents = visibleEvents.filter((event) => event.date === dateKey)
-              const dayReminders = visibleReminders.filter((reminder) => reminder.date === dateKey)
 
               return (
                 <article
@@ -529,20 +484,6 @@ export default function ScheduleCalendar({
                     })}
                   </div>
 
-                  {dayReminders.length > 0 ? (
-                    <div className="border-t border-rose-100 bg-rose-50/60 px-3 py-2 text-[11px] leading-4 text-rose-600">
-                      <button
-                        type="button"
-                        onClick={() => onOpenApplication(dayReminders[0].applicationId)}
-                        className="block w-full truncate text-left hover:text-rose-800"
-                      >
-                        截止提醒 · {dayReminders[0].time} {dayReminders[0].label}
-                      </button>
-                      {dayReminders.length > 1 ? (
-                        <div className="mt-0.5 text-rose-400">另有 {dayReminders.length - 1} 项截止提醒</div>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </article>
               )
             })}
