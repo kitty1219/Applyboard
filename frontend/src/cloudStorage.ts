@@ -1,5 +1,6 @@
 import type { Application, ResumeProfile } from './types'
 import type { JobResource } from './resourceStorage'
+import { looksLikeScheduleBlock, type ScheduleBlock } from './scheduleStorage'
 import { supabase } from './supabase'
 
 type CloudTable = 'applications' | 'resumes' | 'job_resources'
@@ -13,7 +14,19 @@ export type CloudData = {
   applications: Application[]
   resumes: ResumeProfile[]
   resources: JobResource[]
+  scheduleBlocks: ScheduleBlock[]
 }
+
+export type LoadedCloudData = CloudData & {
+  hasScheduleBlocksRecord: boolean
+}
+
+type ScheduleBlocksEnvelope = {
+  kind: 'schedule_blocks'
+  blocks: ScheduleBlock[]
+}
+
+const SCHEDULE_BLOCKS_RESOURCE_ID = '__applyboard_schedule_blocks__'
 
 function throwIfError(error: { message: string } | null) {
   if (error) {
@@ -51,17 +64,53 @@ async function addSignedResumeUrls(resumes: ResumeProfile[]): Promise<ResumeProf
   )
 }
 
-export async function loadCloudData(userId: string): Promise<CloudData> {
-  const [applications, resumes, resources] = await Promise.all([
+function looksLikeScheduleBlocksEnvelope(value: unknown): value is ScheduleBlocksEnvelope {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const envelope = value as Record<string, unknown>
+  return (
+    envelope.kind === 'schedule_blocks' &&
+    Array.isArray(envelope.blocks) &&
+    envelope.blocks.every(looksLikeScheduleBlock)
+  )
+}
+
+async function loadResourcesAndSchedule(userId: string): Promise<{
+  resources: JobResource[]
+  scheduleBlocks: ScheduleBlock[]
+  hasScheduleBlocksRecord: boolean
+}> {
+  const { data, error } = await supabase
+    .from('job_resources')
+    .select('id,payload')
+    .eq('user_id', userId)
+
+  throwIfError(error)
+  const rows = (data ?? []) as CloudRow<unknown>[]
+  const scheduleRow = rows.find((row) => row.id === SCHEDULE_BLOCKS_RESOURCE_ID)
+  return {
+    resources: rows
+      .filter((row) => row.id !== SCHEDULE_BLOCKS_RESOURCE_ID)
+      .map((row) => row.payload as JobResource),
+    scheduleBlocks: looksLikeScheduleBlocksEnvelope(scheduleRow?.payload)
+      ? scheduleRow.payload.blocks
+      : [],
+    hasScheduleBlocksRecord: scheduleRow !== undefined,
+  }
+}
+
+export async function loadCloudData(userId: string): Promise<LoadedCloudData> {
+  const [applications, resumes, resourceData] = await Promise.all([
     loadRows<Application>('applications', userId),
     loadRows<ResumeProfile>('resumes', userId),
-    loadRows<JobResource>('job_resources', userId),
+    loadResourcesAndSchedule(userId),
   ])
 
   return {
     applications,
     resumes: await addSignedResumeUrls(resumes),
-    resources,
+    ...resourceData,
   }
 }
 
@@ -210,10 +259,36 @@ async function syncResumes(
   await syncRows('resumes', userId, resumes, previousResumes, preparedChangedResumes)
 }
 
+async function syncScheduleBlocks(
+  userId: string,
+  scheduleBlocks: ScheduleBlock[],
+): Promise<void> {
+  const now = new Date().toISOString()
+  const payload: ScheduleBlocksEnvelope = {
+    kind: 'schedule_blocks',
+    blocks: scheduleBlocks,
+  }
+  const { error } = await supabase.from('job_resources').upsert(
+    {
+      user_id: userId,
+      id: SCHEDULE_BLOCKS_RESOURCE_ID,
+      payload,
+      updated_at: now,
+    },
+    { onConflict: 'user_id,id' },
+  )
+  throwIfError(error)
+}
+
 export async function syncCloudData(
   userId: string,
   data: CloudData,
-  previousData: CloudData = { applications: [], resumes: [], resources: [] },
+  previousData: CloudData = {
+    applications: [],
+    resumes: [],
+    resources: [],
+    scheduleBlocks: [],
+  },
 ): Promise<void> {
   const tasks: Promise<void>[] = []
 
@@ -229,6 +304,9 @@ export async function syncCloudData(
     tasks.push(
       syncRows('job_resources', userId, data.resources, previousData.resources),
     )
+  }
+  if (data.scheduleBlocks !== previousData.scheduleBlocks) {
+    tasks.push(syncScheduleBlocks(userId, data.scheduleBlocks))
   }
 
   await Promise.all(tasks)

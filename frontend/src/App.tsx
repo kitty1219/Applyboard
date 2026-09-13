@@ -467,9 +467,11 @@ function App() {
   const [scheduleBlocks, setScheduleBlocks] = useState<ScheduleBlock[]>(
     () => initialLocalData.scheduleBlocks,
   )
+  const scheduleBlocksRef = useRef(scheduleBlocks)
 
   useEffect(() => {
     saveScheduleBlocksToStorage(scheduleBlocks)
+    scheduleBlocksRef.current = scheduleBlocks
   }, [scheduleBlocks])
   const [session, setSession] = useState<Session | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
@@ -482,11 +484,7 @@ function App() {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'saved' | 'error'>('idle')
   const syncTimerRef = useRef<number | null>(null)
   const remoteReloadTimerRef = useRef<number | null>(null)
-  const lastSyncedDataRef = useRef<{
-    applications: Application[]
-    resumes: ResumeProfile[]
-    resources: typeof resources
-  } | null>(null)
+  const lastSyncedDataRef = useRef<CloudData | null>(null)
   const isApplyingCloudRef = useRef(false)
   const isSyncInFlightRef = useRef(false)
   const hasPendingLocalChangesRef = useRef(false)
@@ -569,10 +567,23 @@ function App() {
           return
         }
 
-        lastSyncedDataRef.current = cloudData
+        const localScheduleBlocks = scheduleBlocksRef.current
+        lastSyncedDataRef.current = {
+          applications: cloudData.applications,
+          resumes: cloudData.resumes,
+          resources: cloudData.resources,
+          scheduleBlocks: cloudData.hasScheduleBlocksRecord
+            ? cloudData.scheduleBlocks
+            : localScheduleBlocks.length > 0
+              ? []
+              : localScheduleBlocks,
+        }
         setApplications(cloudData.applications)
         setResumes(cloudData.resumes)
         setResources(cloudData.resources)
+        if (cloudData.hasScheduleBlocksRecord) {
+          setScheduleBlocks(cloudData.scheduleBlocks)
+        }
 
         setSyncStatus('saved')
         setIsCloudReady(true)
@@ -611,7 +622,7 @@ function App() {
     hasPendingLocalChangesRef.current = true
     const snapshotVersion = localChangeVersionRef.current + 1
     localChangeVersionRef.current = snapshotVersion
-    const snapshot = { applications, resumes, resources }
+    const snapshot = { applications, resumes, resources, scheduleBlocks }
     syncTimerRef.current = window.setTimeout(() => {
       setSyncStatus('syncing')
       syncQueueRef.current = syncQueueRef.current
@@ -621,6 +632,7 @@ function App() {
             applications: [],
             resumes: [],
             resources: [],
+            scheduleBlocks: [],
           }
           await syncCloudData(session.user.id, snapshot, previousData)
           lastSyncedDataRef.current = snapshot
@@ -650,7 +662,7 @@ function App() {
         window.clearTimeout(syncTimerRef.current)
       }
     }
-  }, [applications, isCloudReady, resources, resumes, session])
+  }, [applications, isCloudReady, resources, resumes, scheduleBlocks, session])
 
   useEffect(() => {
     if (!session || !isCloudReady) {
@@ -674,12 +686,25 @@ function App() {
             if (!active) {
               return
             }
+            const localScheduleBlocks = scheduleBlocksRef.current
             isApplyingCloudRef.current = true
             hasPendingLocalChangesRef.current = false
-            lastSyncedDataRef.current = cloudData
+            lastSyncedDataRef.current = {
+              applications: cloudData.applications,
+              resumes: cloudData.resumes,
+              resources: cloudData.resources,
+              scheduleBlocks: cloudData.hasScheduleBlocksRecord
+                ? cloudData.scheduleBlocks
+                : localScheduleBlocks.length > 0
+                  ? []
+                  : localScheduleBlocks,
+            }
             setApplications(cloudData.applications)
             setResumes(cloudData.resumes)
             setResources(cloudData.resources)
+            if (cloudData.hasScheduleBlocksRecord) {
+              setScheduleBlocks(cloudData.scheduleBlocks)
+            }
             setSyncStatus('saved')
           })
           .catch((error: unknown) => {
@@ -1171,11 +1196,12 @@ function App() {
     }
     await syncQueueRef.current
 
-    const snapshot = { applications, resumes, resources }
+    const snapshot = { applications, resumes, resources, scheduleBlocks }
     const previousData = lastSyncedDataRef.current ?? {
       applications: [],
       resumes: [],
       resources: [],
+      scheduleBlocks: [],
     }
     await syncCloudData(sessionUserId, snapshot, previousData)
     lastSyncedDataRef.current = snapshot
@@ -2200,6 +2226,7 @@ function App() {
           setApplications((current) => mergeImportedItems(current, data.applications))
           setResumes((current) => mergeImportedItems(current, data.resumes))
           setResources((current) => mergeImportedItems(current, data.resources))
+          setScheduleBlocks((current) => mergeImportedItems(current, data.scheduleBlocks))
           setIsImportModalOpen(false)
         }}
       />
@@ -2970,6 +2997,7 @@ function ImportPlaceholderModal({
       const applications = parsed['applyboard.applications.v1']
       const resumes = parsed['applyboard.resumes.v1']
       const resources = parsed['applyboard.job-resources.v1']
+      const scheduleBlocks = parsed['applyboard.schedule-blocks.v1']
       if (!Array.isArray(applications) || !Array.isArray(resumes) || !Array.isArray(resources)) {
         throw new Error('文件中缺少可导入的 ApplyBoard 数据。')
       }
@@ -2985,6 +3013,9 @@ function ImportPlaceholderModal({
         applications: applications as Application[],
         resumes: resumes as ResumeProfile[],
         resources: resources as typeof resources,
+        scheduleBlocks: Array.isArray(scheduleBlocks)
+          ? (scheduleBlocks as ScheduleBlock[])
+          : [],
       })
       setFile(null)
       setError('')

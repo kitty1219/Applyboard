@@ -19,7 +19,7 @@ export type ScheduleBlock = {
 
 const STORAGE_KEY = 'applyboard.schedule-blocks.v1'
 
-function looksLikeScheduleBlock(value: unknown): value is ScheduleBlock {
+export function looksLikeScheduleBlock(value: unknown): value is ScheduleBlock {
   if (typeof value !== 'object' || value === null) {
     return false
   }
